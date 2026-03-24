@@ -92,7 +92,14 @@ async function generateWithAnthropic(prompt, styleSvgPrompt) {
     }),
   });
 
-  if (!res.ok) throw new Error(`API ${res.status}`);
+  if (!res.ok) {
+    let errText = `API ${res.status}`;
+    try {
+      const errJSON = await res.json();
+      if (errJSON?.error?.message) errText += ` - ${errJSON.error.message}`;
+    } catch {}
+    throw new Error(errText);
+  }
   const textData = await res.text();
   let text = textData;
   try {
