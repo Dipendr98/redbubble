@@ -57,10 +57,14 @@ const IDEAS = [
 const SVG_SYS = `You are an expert SVG sticker artist creating commercial artwork for Redbubble print-on-demand.
 
 ABSOLUTE RULES:
-1. Output ONLY a single <svg>...</svg> element. NO markdown, NO backticks, NO text before or after. Just raw SVG.
-2. Root: <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg"> — NO width/height attributes.
-3. Create RICH DETAILED artwork with 20-40+ SVG elements. This is professional commercial art.
-4. Use <defs> for: linearGradient, radialGradient, filter (feDropShadow, feGaussianBlur, feColorMatrix), clipPath, pattern.
+1. ORCHESTRATION: You MUST first write a <thinking>...</thinking> block to carefully plan your drawing. Inside this block:
+   - Outline the exact 500x500 coordinate grid layout.
+   - Plan every layer, from back to front (die-cut border → background → body → details → shines).
+   - Calculate precise cubic bezier curve paths (C or Q) for organic human/character shapes instead of just stacking circles.
+2. After thinking, output ONLY a single <svg>...</svg> element.
+3. Root: <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg"> — NO width/height attributes.
+4. Create RICH DETAILED artwork using complex <path> elements. Do NOT just stack primitive circles and ellipses. Draw real organic shapes.
+5. Use <defs> for: linearGradient, radialGradient, filter (feDropShadow, feGaussianBlur), clipPath.
 5. Build 5+ visual layers:
    - Layer 1: White (#ffffff) rounded-rect border shape behind everything (the die-cut edge)
    - Layer 2: Background fill/pattern inside the border
