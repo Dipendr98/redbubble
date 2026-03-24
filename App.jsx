@@ -221,8 +221,8 @@ function ImgMockup({ src, onLoad, onError, loading }) {
    MAIN APP
    ═══════════════════════════════════════════════════════════ */
 export default function App() {
-  const [engine, setEngine] = useState("auto");
-  const [detectedEngine, setDetectedEngine] = useState(null);
+  const [engine, setEngine] = useState("anthropic");
+  const [detectedEngine, setDetectedEngine] = useState("anthropic");
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState("die-cut");
   const [loading, setLoading] = useState(false);
@@ -277,18 +277,8 @@ export default function App() {
         setImgLoading(true);
       }
     } catch (err) {
-      if (eng === "anthropic" && engine === "auto") {
-        setDetectedEngine("pollinations");
-        const seed = Math.floor(Math.random() * 999999);
-        const r = generateWithPollinations(prompt.trim(), sel.img, seed);
-        const entry = { ...r, prompt: prompt.trim(), style, ts: Date.now() };
-        setResult(entry);
-        setImgLoading(true);
-      } else {
-        setError(err.message || "Generation failed. Try again.");
-        setLoading(false);
-      }
-      if (eng !== "anthropic" || engine !== "auto") setLoading(false);
+      setError(err.message || "Generation failed. Try again.");
+      setLoading(false);
       return;
     }
     if (eng === "anthropic") setLoading(false);
