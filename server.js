@@ -14,18 +14,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Proxy stream to Groq API
+// Proxy stream to GitHub Models API for GPT-4o
 app.post('/api/generate', async (req, res) => {
-  if (!process.env.GROQ_API_KEY) {
-    return res.status(500).json({ error: { message: "GROQ_API_KEY is missing on the server" } });
+  if (!process.env.GITHUB_TOKEN) {
+    return res.status(500).json({ error: { message: "GITHUB_TOKEN is missing on the server" } });
   }
 
   try {
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+        "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`
       },
       body: JSON.stringify(req.body)
     });
