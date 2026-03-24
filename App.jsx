@@ -53,6 +53,78 @@ const IDEAS = [
   { icon:"🐙", label:"Octopus", p:"a playful octopus with items" },
 ];
 
+const ORCHESTRATOR_LEVELS = [
+  { id: "standard", label: "Standard" },
+  { id: "advanced", label: "Advanced" },
+  { id: "cinematic", label: "Cinematic" },
+];
+
+const OUTPUT_MODES = [
+  { id: "sticker-pro", label: "Sticker Pro", hint: "Best for Redbubble sticker listing" },
+  { id: "hero-real", label: "Hero Real", hint: "Photoreal product-hero style image" },
+];
+
+function buildOrchestratorBrief(prompt, outputMode, level) {
+  const modeText = outputMode === "hero-real"
+    ? "Create a realistic hero image with studio lighting, premium materials, depth, accurate shadows, and premium e-commerce look."
+    : "Create a commercial sticker composition with die-cut silhouette, strong readability, and marketplace-friendly contrast.";
+
+  const levelText = {
+    standard: "Follow prompt accurately with clean composition.",
+    advanced: "Use strict planning: subject fidelity, composition map, style constraints, and visual QA pass before final output.",
+    cinematic: "Use advanced art direction: scene hierarchy, cinematic key/fill/rim lighting, realistic material response, and pro color grading."
+  }[level] || "Follow prompt accurately with clean composition.";
+
+  return `ORCHESTRATOR BRIEF:
+- User request: "${prompt}"
+- Output mode: ${outputMode}
+- ${modeText}
+- ${levelText}
+- Never replace the requested subject with random objects.
+- Keep the main subject dominant and centered with clear visual hierarchy.`;
+}
+
+/** Keep image URLs short — long prompts break CDNs, proxies, and Pollinations GET limits. */
+const POLL_URL_MAX = 900;
+
+function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, orchestratorLevel) {
+  const u = (userPrompt || "").trim().replace(/\s+/g, " ").slice(0, 320);
+  const st = (styleImgPrompt || "").trim().replace(/\s+/g, " ").slice(0, 160);
+  const mode =
+    outputMode === "hero-real"
+      ? "photoreal hero product shot, studio light, soft shadow, premium ecommerce, sharp focus"
+      : "die-cut vinyl sticker, thick white outline, centered, clean silhouette, white background";
+  const lvl =
+    orchestratorLevel === "cinematic"
+      ? "cinematic rim light, rich color"
+      : orchestratorLevel === "advanced"
+        ? "professional balanced composition"
+        : "";
+  const tail = "single main subject, high detail, coherent";
+  let out = [u, st, mode, lvl, tail].filter(Boolean).join(", ");
+  if (out.length > POLL_URL_MAX) out = out.slice(0, POLL_URL_MAX);
+  return out;
+}
+
+function pollinationsImageUrl(promptText, opts) {
+  const {
+    width = 1024,
+    height = 1024,
+    seed,
+    model = "flux",
+    negative = "blurry, lowres, watermark, ugly, deformed, cropped face, extra limbs",
+    nologo = true,
+  } = opts;
+  const q = new URLSearchParams();
+  q.set("width", String(width));
+  q.set("height", String(height));
+  q.set("seed", String(seed));
+  if (nologo) q.set("nologo", "true");
+  q.set("model", model);
+  if (negative) q.set("negative", negative);
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?${q.toString()}`;
+}
+
 /* ─── SVG SYSTEM PROMPT ──────────────────────────────────── */
 const SVG_SYS = `You are an elite AI Vector Artist and Systems Architect specialized in generating Redbubble-ready commercial SVG stickers. Your task is to translate user prompts into breathtaking, highly detailed, organic SVG vector art.
 
@@ -76,8 +148,19 @@ EXECUTION RULES:
 - Professionalism: Do NOT output abstract, overlapping primitive blobs. The user demands highly-engineered, commercial-grade, beautiful vector artistry.`;
 
 /* ─── API ENGINE (GPT-4o Proxy) ─────────────────────────── */
-async function generateWithAnthropic(prompt, styleSvgPrompt) {
-  const userMsg = `Create a die-cut sticker design of: "${prompt}"\n\n${styleSvgPrompt}\n\nRemember: ONLY output the <svg>...</svg> code. Make it detailed with 25+ elements, colorful, expressive, and commercially attractive. Include sparkle decorations and a white die-cut border shape.`;
+async function generateWithAnthropic(prompt, styleSvgPrompt, outputMode, orchestratorLevel) {
+  const orchestratorBrief = buildOrchestratorBrief(prompt, outputMode, orchestratorLevel);
+  const modeRules = outputMode === "hero-real"
+    ? "Create an ultra-detailed premium hero-style artwork with realistic shading, material textures, and cinematic lighting while remaining valid SVG."
+    : "Create a die-cut sticker design with thick white border, strong silhouette, and Redbubble-ready readability.";
+
+  const userMsg = `${orchestratorBrief}
+
+${modeRules}
+Style directives:
+${styleSvgPrompt}
+
+Remember: ONLY output the <svg>...</svg> code. Make it detailed with 35+ elements, expressive, commercially attractive, and faithful to the request.`;
 
   const res = await fetch("/api/generate", {
     method: "POST",
@@ -114,21 +197,65 @@ async function generateWithAnthropic(prompt, styleSvgPrompt) {
 }
 
 /* ─── POLLINATIONS ENGINE (Fallback) ─────────────────────── */
-function generateWithPollinations(prompt, styleImgPrompt, seed) {
-  const full = [prompt.trim(), styleImgPrompt,
-    "high quality, detailed, professional sticker artwork, centered composition, clean silhouette, marketplace ready, print ready, single main subject"
-  ].join(", ");
-  const neg = "blurry,low quality,watermark,signature,text,words,letters,logo,brand,copyright,nsfw,ugly,deformed,noisy,grainy,cropped";
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=1024&height=1024&seed=${seed}&nologo=true&negative=${encodeURIComponent(neg)}&model=flux`;
-  return { type: "image", url, seed };
+function generateWithPollinations(prompt, styleImgPrompt, seed, outputMode, orchestratorLevel) {
+  const compact = buildPollinationsPromptCompact(prompt, styleImgPrompt, outputMode, orchestratorLevel);
+  const w = 1024;
+  const h = 1024;
+  const url = pollinationsImageUrl(compact, { width: w, height: h, seed, model: "flux" });
+  return {
+    type: "image",
+    url,
+    seed,
+    imagePrompt: compact,
+    pollW: w,
+    pollH: h,
+    pollModel: "flux",
+  };
 }
 
-function pollinationsHiRes(prompt, styleImgPrompt, seed) {
-  const full = [prompt.trim(), styleImgPrompt,
-    "high quality, detailed, professional sticker artwork, centered composition, clean silhouette, marketplace ready, print ready, single main subject"
-  ].join(", ");
-  const neg = "blurry,low quality,watermark,signature,text,words,letters,logo,brand,copyright,nsfw,ugly,deformed,noisy,grainy,cropped";
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=2048&height=2048&seed=${seed}&nologo=true&negative=${encodeURIComponent(neg)}&model=flux`;
+function pollinationsHiRes(imagePrompt, seed, pollModel, outputMode) {
+  const size = outputMode === "hero-real" ? 1536 : 1536;
+  return pollinationsImageUrl(imagePrompt, {
+    width: size,
+    height: size,
+    seed,
+    model: pollModel || "flux",
+  });
+}
+
+/** Recovery URLs when the first request fails (overload, URL limits, or model hiccups). */
+function pollinationsRetryUrl(entry, styleImgPrompt, attempt) {
+  const seed = Math.floor(Math.random() * 999999);
+  let compact = entry.imagePrompt;
+  let w = 1024;
+  let h = 1024;
+  let model = entry.pollModel || "flux";
+  let nologo = true;
+
+  if (attempt === 1) {
+    w = 768;
+    h = 768;
+  } else if (attempt === 2) {
+    model = "turbo";
+    w = 768;
+    h = 768;
+  } else {
+    const minimal = buildPollinationsPromptCompact(entry.prompt || "", styleImgPrompt || "", entry.outputMode || "sticker-pro", "standard");
+    compact = minimal.slice(0, 500);
+    model = "turbo";
+    w = 512;
+    h = 512;
+    nologo = false;
+  }
+
+  return {
+    url: pollinationsImageUrl(compact, { width: w, height: h, seed, model, nologo }),
+    seed,
+    imagePrompt: compact,
+    pollW: w,
+    pollH: h,
+    pollModel: model,
+  };
 }
 
 /* ─── DOWNLOAD HELPERS ───────────────────────────────────── */
@@ -204,8 +331,15 @@ function ImgMockup({ src, onLoad, onError, loading }) {
               <span style={{ fontSize:9, color:"#aaa", fontFamily:"var(--mono)", marginTop:2 }}>~15-30 sec</span>
             </div>
           )}
-          <img src={src} alt="sticker" onLoad={onLoad} onError={onError}
-            style={{ width:"100%", height:"100%", objectFit:"contain", borderRadius:19, display:"block", opacity:loading?0:1, transition:"opacity .4s" }} />
+          <img
+            key={src}
+            src={src}
+            alt="sticker"
+            referrerPolicy="no-referrer"
+            onLoad={onLoad}
+            onError={onError}
+            style={{ width:"100%", height:"100%", objectFit:"contain", borderRadius:19, display:"block", opacity:loading?0:1, transition:"opacity .4s" }}
+          />
           <div style={{ position:"absolute", top:11, left:11, right:"46%", bottom:"54%", borderRadius:"19px 19px 55% 0", background:"linear-gradient(158deg,rgba(255,255,255,.32) 0%,transparent 100%)", pointerEvents:"none", opacity:loading?0:1 }} />
         </div>
       </div>
@@ -231,6 +365,8 @@ export default function App() {
   const [detectedEngine, setDetectedEngine] = useState("anthropic");
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState("die-cut");
+  const [outputMode, setOutputMode] = useState("sticker-pro");
+  const [orchestratorLevel, setOrchestratorLevel] = useState("advanced");
   const [loading, setLoading] = useState(false);
   const [imgLoading, setImgLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -266,19 +402,28 @@ export default function App() {
 
   const generate = useCallback(async () => {
     if (!prompt.trim() || loading) return;
-    const eng = engine === "auto" ? (detectedEngine || "pollinations") : engine;
+    let eng = engine === "auto" ? (detectedEngine || "pollinations") : engine;
+    if (outputMode === "hero-real") eng = "pollinations";
     setLoading(true); setError(""); setResult(null); setDlStatus(""); setImgLoading(false);
 
     try {
       if (eng === "anthropic") {
-        const r = await generateWithAnthropic(prompt.trim(), sel.svg);
-        const entry = { ...r, prompt: prompt.trim(), style, ts: Date.now() };
+        const r = await generateWithAnthropic(prompt.trim(), sel.svg, outputMode, orchestratorLevel);
+        const entry = { ...r, prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now() };
         setResult(entry);
         setHistory(h => [entry, ...h].slice(0, 14));
       } else {
         const seed = Math.floor(Math.random() * 999999);
-        const r = generateWithPollinations(prompt.trim(), sel.img, seed);
-        const entry = { ...r, prompt: prompt.trim(), style, ts: Date.now() };
+        const r = generateWithPollinations(prompt.trim(), sel.img, seed, outputMode, orchestratorLevel);
+        const entry = {
+          ...r,
+          prompt: prompt.trim(),
+          style,
+          outputMode,
+          orchestratorLevel,
+          imageLoadAttempt: 0,
+          ts: Date.now(),
+        };
         setResult(entry);
         setImgLoading(true);
       }
@@ -288,7 +433,7 @@ export default function App() {
       return;
     }
     if (eng === "anthropic") setLoading(false);
-  }, [prompt, style, loading, engine, detectedEngine, sel]);
+  }, [prompt, style, loading, engine, detectedEngine, sel, outputMode, orchestratorLevel]);
 
   const onImgLoad = useCallback(() => {
     setImgLoading(false); setLoading(false);
@@ -299,12 +444,36 @@ export default function App() {
   }, []);
 
   const onImgError = useCallback(() => {
-    setImgLoading(false); setLoading(false);
-    setError("Image failed to load. Pollinations may be busy — try again.");
+    setResult(prev => {
+      if (!prev || prev.type !== "image") {
+        setImgLoading(false);
+        setLoading(false);
+        setError("Image failed to load.");
+        return prev;
+      }
+      const attempt = (prev.imageLoadAttempt || 0) + 1;
+      const styleImg = STYLES.find(s => s.id === prev.style)?.img || "";
+      if (attempt > 3) {
+        setImgLoading(false);
+        setLoading(false);
+        setError("Image failed after retries. Click Generate again, try a shorter prompt, or use GPT-4o SVG if your API proxy is available.");
+        return prev;
+      }
+      setError("");
+      setImgLoading(true);
+      const next = pollinationsRetryUrl(prev, styleImg, attempt);
+      return {
+        ...prev,
+        ...next,
+        imageLoadAttempt: attempt,
+      };
+    });
   }, []);
 
   const selectHist = useCallback((item) => {
     setResult(item); setPrompt(item.prompt); setStyle(item.style);
+    if (item.outputMode) setOutputMode(item.outputMode);
+    if (item.orchestratorLevel) setOrchestratorLevel(item.orchestratorLevel);
     setError(""); setDlStatus(""); setLoading(false); setImgLoading(false);
   }, []);
 
@@ -320,8 +489,12 @@ export default function App() {
           dlSvg(result.svg, `sticker-${Date.now()}.svg`);
         }
       } else {
+        const styleImg = STYLES.find(s=>s.id===result.style)?.img || "";
+        const imgPrompt =
+          result.imagePrompt ||
+          buildPollinationsPromptCompact(result.prompt, styleImg, result.outputMode || outputMode, result.orchestratorLevel || orchestratorLevel);
         if (hiRes) {
-          const u = pollinationsHiRes(result.prompt, STYLES.find(s=>s.id===result.style)?.img||"", result.seed);
+          const u = pollinationsHiRes(imgPrompt, result.seed, result.pollModel, result.outputMode || outputMode);
           await fetchAsDownload(u, `sticker-HQ-${result.seed}.png`);
         } else {
           await fetchAsDownload(result.url, `sticker-${result.seed}.png`);
@@ -330,7 +503,7 @@ export default function App() {
       setDlStatus("done");
     } catch { setDlStatus("done"); }
     setTimeout(() => setDlStatus(""), 2500);
-  }, [result]);
+  }, [result, outputMode, orchestratorLevel]);
 
   const hasResult = result && ((result.type==="svg") || (result.type==="image" && !imgLoading));
 
@@ -423,6 +596,39 @@ export default function App() {
                     style={{padding:"5px 10px",borderRadius:18,background:"var(--bg2)",border:"1px solid var(--bdr)",fontSize:12,color:"var(--t2)",display:"flex",alignItems:"center",gap:4}}>
                     <span style={{fontSize:13}}>{i.icon}</span>{i.label}
                   </div>
+                ))}
+              </div>
+            </div>
+            <div className="P">
+              <label className="L">Output Mode</label>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                {OUTPUT_MODES.map(m=>(
+                  <button key={m.id} className="AB" onClick={()=>setOutputMode(m.id)} style={{
+                    textAlign:"left",padding:"10px 11px",borderRadius:11,border:`1px solid ${outputMode===m.id?"var(--bdrA)":"var(--bdr)"}`,
+                    background:outputMode===m.id?"var(--accentG)":"var(--bg2)",color:outputMode===m.id?"var(--t1)":"var(--t2)"
+                  }}>
+                    <div style={{fontSize:12,fontWeight:600}}>{m.label}</div>
+                    <div style={{fontSize:9,fontFamily:"var(--mono)",opacity:.8,marginTop:2}}>{m.hint}</div>
+                  </button>
+                ))}
+              </div>
+              {outputMode==="hero-real" && (
+                <div style={{fontSize:9,color:"var(--t3)",fontFamily:"var(--mono)",marginTop:8}}>
+                  Hero Real uses image engine automatically for realistic output.
+                </div>
+              )}
+            </div>
+            <div className="P">
+              <label className="L">Orchestrator Level</label>
+              <div style={{display:"flex",gap:6}}>
+                {ORCHESTRATOR_LEVELS.map(l=>(
+                  <button key={l.id} className="AB" onClick={()=>setOrchestratorLevel(l.id)} style={{
+                    flex:1,padding:"9px 7px",borderRadius:10,border:`1px solid ${orchestratorLevel===l.id?"var(--bdrA)":"var(--bdr)"}`,
+                    background:orchestratorLevel===l.id?"var(--accentG)":"var(--bg2)",
+                    color:orchestratorLevel===l.id?"var(--t1)":"var(--t2)",fontSize:11,fontFamily:"var(--mono)"
+                  }}>
+                    {l.label}
+                  </button>
                 ))}
               </div>
             </div>
