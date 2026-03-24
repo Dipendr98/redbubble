@@ -7,4 +7,9 @@ export default defineConfig({
   preview: {
     allowedHosts: true,
   },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:4000'
+    }
+  }
 })
