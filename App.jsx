@@ -111,11 +111,12 @@ Remember: Output ONLY the SVG code. Make it detailed, colorful, expressive, and 
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 4000,
+      model: "llama-3.3-70b-versatile",
       stream: true,
-      messages: [{ role: "user", content: fullPrompt }],
-      system: SVG_SYSTEM_PROMPT,
+      messages: [
+        { role: "system", content: SVG_SYSTEM_PROMPT },
+        { role: "user", content: fullPrompt },
+      ],
     }),
   });
 
@@ -143,8 +144,9 @@ Remember: Output ONLY the SVG code. Make it detailed, colorful, expressive, and 
         if (data === "[DONE]") continue;
         try {
           const parsed = JSON.parse(data);
-          if (parsed.type === "content_block_delta" && parsed.delta?.text) {
-            fullText += parsed.delta.text;
+          const chunk = parsed.choices?.[0]?.delta?.content;
+          if (chunk) {
+            fullText += chunk;
             if (onChunk) onChunk(fullText);
           }
         } catch {}

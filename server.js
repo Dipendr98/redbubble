@@ -14,19 +14,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Proxy stream to Anthropic API
+// Proxy stream to Groq API
 app.post('/api/generate', async (req, res) => {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: { message: "ANTHROPIC_API_KEY is missing on the server" } });
+  if (!process.env.GROQ_API_KEY) {
+    return res.status(500).json({ error: { message: "GROQ_API_KEY is missing on the server" } });
   }
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01"
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify(req.body)
     });
