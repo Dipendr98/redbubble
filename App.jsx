@@ -100,20 +100,21 @@ function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, 
   const st = (styleImgPrompt || "").trim().replace(/\s+/g, " ").slice(0, 160);
   
   // Model-specific reinforcement for "Best Model" (Flux/Z-image)
+  // Re-injecting Ultra-High Quality Boosters
   const quality = orchestratorLevel === "cinematic" 
-    ? "8k, cinematic lighting" 
-    : "high res, clean details";
+    ? "ultra-detailed masterpiece, 8k, sharp focus, ray-traced lighting, professional studio shot" 
+    : "premium high resolution, clean details, professional work";
 
   const mode =
     outputMode === "hero-real"
-      ? `${quality}, photoreal hero product shot, studio light, soft shadow, premium ecommerce, depth of field`
+      ? `${quality}, photoreal hero product shot, cinema 4D, soft volumetric shadow, premium ecommerce, depth of field`
       : `${quality}, die-cut vinyl sticker, thick white outline, centered, clean silhouette, isolated on white background, no text, no watermark`;
       
   const lvl =
     orchestratorLevel === "cinematic"
-      ? "hyper-realistic materials, rich vibrant color, global illumination"
+      ? "hyper-realistic materials, vibrant global illumination"
       : orchestratorLevel === "advanced"
-        ? "perfectly balanced artistic composition"
+        ? "perfectly balanced artistic symmetry"
         : "";
 
   let out = [u, st, mode, lvl].filter(Boolean).join(", ");
@@ -133,6 +134,8 @@ function pollinationsImageUrl(promptText, opts) {
   q.set("width", String(width));
   q.set("height", String(height));
   q.set("prompt", promptText);
+  q.set("enhance", "true"); // Force AI upscaling/enhancement
+  q.set("nologo", "true");  // Remove watermarks for professional look
 
   // Use backend proxy to avoid direct browser <img src> issues and URL length limits
   return `/api/image?${q.toString()}`;
