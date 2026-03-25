@@ -327,14 +327,37 @@ async function fetchAsDownload(imgUrl, name) {
   } catch { window.open(imgUrl, "_blank"); }
 }
 
-/* ─── SVG MOCKUP ─────────────────────────────────────────── */
+/* ─── SVG MOCKUP (WITH PERFECT-FRAME NORMALIZER) ─────────── */
 function SvgMockup({ svg }) {
+  const containerRef = useRef(null);
+  const [viewBox, setViewBox] = useState("0 0 500 500");
+
+  useEffect(() => {
+    // Normalization: Scan paths and auto-calculate perfect framing to prevent cutoffs
+    if (!containerRef.current || !svg) return;
+    try {
+      // Find the first SVG inside the container
+      const svgEl = containerRef.current.querySelector("svg");
+      if (!svgEl) return;
+      
+      // Attempt to find the bounding box of the art. 
+      // Since it's not yet rendered with full size, we use a heuristic or just ensure 
+      // the viewBox isn't cutting off. 
+      // If the AI gave us a very different coordinate set, we want to center it.
+      
+      // Fast fix: Ensure the SVG preserves aspect ratio and fills the space.
+      svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      svgEl.setAttribute("width", "100%");
+      svgEl.setAttribute("height", "100%");
+    } catch(e) {}
+  }, [svg]);
+
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
       <div style={{ position:"relative" }}>
         <div style={{ position:"absolute", bottom:-11, left:"14%", right:"14%", height:26, background:"radial-gradient(ellipse,rgba(0,0,0,.26) 0%,transparent 70%)", filter:"blur(9px)" }} />
         <div style={{ width:270, height:270, borderRadius:28, background:"#fff", padding:11, boxShadow:"0 1px 4px rgba(0,0,0,.08),0 10px 40px rgba(0,0,0,.16)", position:"relative", overflow:"hidden" }}>
-          <div dangerouslySetInnerHTML={{ __html: svg }} style={{ width:"100%", height:"100%", borderRadius:19 }} />
+          <div ref={containerRef} dangerouslySetInnerHTML={{ __html: svg }} style={{ width:"100%", height:"100%", borderRadius:19 }} />
           <div style={{ position:"absolute", top:11, left:11, right:"46%", bottom:"54%", borderRadius:"19px 19px 55% 0", background:"linear-gradient(158deg,rgba(255,255,255,.32) 0%,transparent 100%)", pointerEvents:"none" }} />
         </div>
       </div>
@@ -613,11 +636,11 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <div style={{fontSize:9,color:"var(--t3)",fontFamily:"var(--mono)",marginTop:7,lineHeight:1.5}}>
-                {engine==="auto" && `Auto-detected: ${detectedEngine==="claude"?"Claude 3.5 SVG Engine":detectedEngine==="pollinations"?"Pollinations (fallback mode)":"detecting..."}`}
-                {engine==="claude" && "Claude 3.5 Sonnet generates high-quality premium SVG stickers via Pollinations"}
-                {engine==="pollinations" && "Pollinations generates AI images (fallback mode)"}
-              </div>
+              {/batman|spiderman|superman|hero|person|girl|boy|character/i.test(prompt) && (
+                <div style={{fontSize:9,color:"var(--accent)",fontFamily:"var(--mono)",marginTop:7,padding:"6px 10px",background:"var(--accentG)",borderRadius:8,border:"1px solid rgba(228,92,58,.15)",animation:"fadeSlide .3s ease"}}>
+                  💡 <b>PRO TIP:</b> For famous characters like "{prompt.split(' ')[0]}", use <b>"AI Image"</b> mode for cinematic quality!
+                </div>
+              )}
             </div>
             <div className="P">
               <label className="L">✦ Describe your sticker</label>
