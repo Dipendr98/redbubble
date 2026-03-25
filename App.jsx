@@ -71,8 +71,8 @@ function buildOrchestratorBrief(prompt, outputMode, level) {
 
   const levelText = {
     standard: "Follow prompt accurately with clean composition.",
-    advanced: "Use strict planning: subject fidelity, composition map, style constraints, and visual QA pass before final output.",
-    cinematic: "Use advanced art direction: scene hierarchy, cinematic key/fill/rim lighting, realistic material response, and pro color grading."
+    advanced: "Prioritize artistic composition and subject fidelity.",
+    cinematic: "Use advanced lighting and material depth for premium results."
   }[level] || "Follow prompt accurately with clean composition.";
 
   return `ORCHESTRATOR BRIEF:
@@ -85,8 +85,9 @@ function buildOrchestratorBrief(prompt, outputMode, level) {
 }
 
 /** Keep image URLs short — long prompts break CDNs, proxies, and Pollinations GET limits. */
-const POLL_URL_MAX = 800;
-const POLLINATIONS_API_KEY = "sk_mMB4aVvYz9mfqbZhttnz2BQl1DPtzeKE";
+const POLL_URL_MAX = 450; 
+const PROXY_KEY = import.meta.env.VITE_GITHUB_TOKEN || "";
+const POLLINATIONS_API_KEY = import.meta.env.VITE_POLLINATIONS_API_KEY || "sk_mMB4aVvYz9mfqbZhttnz2BQl1DPtzeKE";
 
 function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, orchestratorLevel) {
   const u = (userPrompt || "").trim().replace(/\s+/g, " ").slice(0, 320);
@@ -94,8 +95,8 @@ function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, 
   
   // Model-specific reinforcement for "Best Model" (Flux/Z-image)
   const quality = orchestratorLevel === "cinematic" 
-    ? "ultra-detailed, 8k, cinematic lighting, masterpiece, sharp focus" 
-    : "high resolution, clean details, professional work";
+    ? "8k, cinematic lighting" 
+    : "high res, clean details";
 
   const mode =
     outputMode === "hero-real"
@@ -109,11 +110,10 @@ function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, 
         ? "perfectly balanced artistic composition"
         : "";
 
-  const tail = "single centered object, coherent architecture, no background artifacts";
-  let out = [u, st, mode, lvl, tail].filter(Boolean).join(", ");
+  let out = [u, st, mode, lvl].filter(Boolean).join(", ");
   
-  // Final cleaning to avoid bad characters in URL
-  out = out.replace(/[^a-zA-Z0-9\s,._-]/g, "");
+  // Final cleaning: REMOVE all special characters to avoid URL breakage
+  out = out.replace(/[^a-zA-Z0-9\s,]/g, "");
   
   if (out.length > POLL_URL_MAX) out = out.slice(0, POLL_URL_MAX);
   return out;
@@ -149,15 +149,18 @@ const SVG_SYS = `You are an elite AI Vector Artist. Generate a high-quality, com
 - Rules: NO text, NO markdown, ONLY raw <svg> code.
 - Optimize: High visual impact with minimal path complexity for speed.`;
 
-/* ─── API ENGINE (Streaming & Proxy Optimized) ────────────── */
+/* ─── API ENGINE (Reliable & Streaming) ───────────────────── */
 async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchestratorLevel, onChunk) {
   const orchestratorBrief = buildOrchestratorBrief(prompt, outputMode, orchestratorLevel);
   const userMsg = `${orchestratorBrief}\n\nStyle: ${styleSvgPrompt}\n\nOutput ONLY the raw SVG code.`;
 
-  // Try local proxy first (usually GPT-4o, very fast), fallback to Pollinations
-  let url = "/api/generate";
+  // Use Pollinations as primary to avoid GitHub token activation issues (401)
+  const pollKey = import.meta.env.VITE_POLLINATIONS_API_KEY || "";
+  
+  // Primary engine: GPT-4o on Pollinations is usually much faster than Claude-large
+  let url = "https://gen.pollinations.ai/v1/chat/completions";
   let body = {
-    model: "gpt-4o",
+    model: "openai", // GPT-4o: extremely fast and excellent reasoning
     messages: [
       { role: "system", content: SVG_SYS },
       { role: "user", content: userMsg }
@@ -165,17 +168,21 @@ async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchest
     stream: true
   };
 
+  const headers = { "Content-Type": "application/json" };
+  if (pollKey) headers["Authorization"] = `Bearer ${pollKey}`;
+
   try {
     let res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body)
     });
 
     if (!res.ok) {
-      console.warn("Proxy failed, falling back to direct Pollinations...");
-      url = "https://gen.pollinations.ai/v1/chat/completions";
-      body.model = "claude-large";
+      // Secondary fallback to local proxy if Pollinations is down
+      console.warn("Pollinations failed, trying local proxy...");
+      url = "/api/generate";
+      body.model = "gpt-4o";
       res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -183,7 +190,10 @@ async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchest
       });
     }
 
-    if (!res.ok) throw new Error("API error: " + res.status);
+    if (!res.ok) {
+      const errTxt = await res.text();
+      throw new Error(`API Error: ${res.status} - ${errTxt.slice(0, 100)}`);
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
