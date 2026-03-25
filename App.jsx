@@ -75,12 +75,18 @@ function buildOrchestratorBrief(prompt, outputMode, level) {
     cinematic: "Use advanced lighting and material depth for premium results."
   }[level] || "Follow prompt accurately with clean composition.";
 
+  const detailChecklist = `
+- SUBJECT FIDELITY: Ensure the character or object is instantly recognizable.
+- ICONIC ELEMENTS: Include signature features (e.g. specialized gear, unique textures, characteristic colors).
+- ANATOMY & SHAPE: Use accurate proportions and organic curves. 
+- LAYERING: Use <g> groups to separate foreground/background elements clearly.`;
+
   return `ORCHESTRATOR BRIEF:
 - User request: "${prompt}"
 - Output mode: ${outputMode}
 - ${modeText}
 - ${levelText}
-- Never replace the requested subject with random objects.
+${detailChecklist}
 - Keep the main subject dominant and centered with clear visual hierarchy.`;
 }
 
@@ -132,13 +138,14 @@ function pollinationsImageUrl(promptText, opts) {
   return `/api/image?${q.toString()}`;
 }
 
-/* ─── SVG SYSTEM PROMPT (PERFORMANCE TUNED) ──────────────── */
-const SVG_SYS = `You are an elite AI Vector Artist. Generate a high-quality, commercial SVG sticker for Redbubble.
-- Root: <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
-- Style: Clean die-cut, thick white (#fff) border, professional layering.
-- Technique: Efficient <path> geometry with clean Bezier curves. Use <defs> for gradients.
-- Rules: NO text, NO markdown, ONLY raw <svg> code.
-- Optimize: High visual impact with minimal path complexity for speed.`;
+/* ─── SVG SYSTEM PROMPT (SOPHISTICATED ARTISTRY) ─────────── */
+const SVG_SYS = `You are a World-Class SVG Artist specialized in premium vector sticker design. 
+Your goal is to generate commercial-grade, multi-layered SVG stickers that look "perfect" and "hand-drawn".
+- Execution: Use a rich combination of <path>, <circle>, <ellipse>, and <polygon> for maximum detail.
+- Layering: Use multiple overlapping paths to create shadows, highlights, and depth.
+- Border: Always include a thick white (#fff) uniform border shape at the bottom-most layer.
+- Quality: Focus on organic curves, sharp points where needed, and character-accurate features. 
+- Rules: NO text, NO markdown, ONLY valid <svg> code starting with <svg viewBox="0 0 500 500">.`;
 
 /* ─── API ENGINE (Reliable & Streaming) ───────────────────── */
 async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchestratorLevel, onChunk) {
