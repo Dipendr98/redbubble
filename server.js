@@ -77,18 +77,19 @@ app.post('/api/optimize-prompt', async (req, res) => {
 
 /** New: Image Proxy to prevent CORS/URL-length issues (Zero-Latency Streaming) */
 app.get('/api/image', async (req, res) => {
-  const { prompt, model, seed, width, height } = req.query;
+  const { prompt, model, seed, width, height, enhance, nologo } = req.query;
   if (!prompt) return res.status(400).send("Prompt required");
 
   const q = new URLSearchParams();
-  // Default to 'turbo' for blazing fast results in standard mode
-  q.set("model", model || "turbo"); 
+  q.set("model", model || "flux"); 
   if (seed) q.set("seed", seed);
   q.set("width", width || "1024");
   q.set("height", height || "1024");
-  if (process.env.VITE_POLLINATIONS_API_KEY) q.set("pollen", process.env.VITE_POLLINATIONS_API_KEY);
+  q.set("enhance", enhance || "true");
+  q.set("nologo", nologo || "true");
 
-  const pollUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?${q.toString()}`;
+  // The most reliable endpoint for Flux stickers is pollinations.ai/p/
+  const pollUrl = `https://pollinations.ai/p/${encodeURIComponent(prompt)}?${q.toString()}`;
   
   try {
     const response = await fetch(pollUrl);

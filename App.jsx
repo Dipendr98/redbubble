@@ -53,68 +53,10 @@ const IDEAS = [
   { icon:"🐙", label:"Octopus", p:"a playful octopus with items" },
 ];
 
-const ORCHESTRATOR_LEVELS = [
-  { id: "standard", label: "Standard" },
-  { id: "advanced", label: "Advanced" },
-  { id: "cinematic", label: "Cinematic" },
-];
-
 const OUTPUT_MODES = [
   { id: "sticker-pro", label: "Sticker Pro", hint: "Best for Redbubble sticker listing" },
   { id: "hero-real", label: "Hero Real", hint: "Photoreal product-hero style image" },
 ];
-
-function buildOrchestratorBrief(prompt, outputMode, level) {
-  const modeText = outputMode === "hero-real"
-    ? "Create a realistic hero image with studio lighting, premium materials, depth, accurate shadows, and premium e-commerce look."
-    : "Create a commercial sticker composition with die-cut silhouette, strong readability, and marketplace-friendly contrast.";
-
-  const levelText = {
-    standard: "Follow prompt accurately with clean composition.",
-    advanced: "Prioritize artistic composition and subject fidelity.",
-    cinematic: "Use advanced lighting and material depth for premium results."
-  }[level] || "Follow prompt accurately with clean composition.";
-
-  const detailChecklist = `
-- COORDINATES: Use a center-aligned coordinate system. (0,0) is the center. 
-- DRAWING AREA: All paths MUST stay within the -200 to +200 range (total width 400).
-- SUBJECT DNA: Define signature features (mask, eyes, cowl, emblem) before code.
-- COMPOSITION: Subject MUST be perfectly centered. Use symmetrical balancing.
-- BORDER: A thick white (#fff) border MUST be the first graphic layer, slightly larger than the subject.`;
-
-  return `ORCHESTRATOR BRIEF:
-- User request: "${prompt}"
-- Output mode: ${outputMode}
-- ${modeText}
-- ${levelText}
-${detailChecklist}
-- Keep the main subject dominant and centered with clear visual hierarchy.`;
-}
-
-/** Keep image URLs short — long prompts break CDNs, proxies, and Pollinations GET limits. */
-const POLL_URL_MAX = 450; 
-const PROXY_KEY = import.meta.env.VITE_GITHUB_TOKEN || "";
-const POLLINATIONS_API_KEY = import.meta.env.VITE_POLLINATIONS_API_KEY || "sk_mMB4aVvYz9mfqbZhttnz2BQl1DPtzeKE";
-
-function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, orchestratorLevel) {
-  const u = (userPrompt || "").trim().replace(/\s+/g, " ").slice(0, 320);
-  const st = (styleImgPrompt || "").trim().replace(/\s+/g, " ").slice(0, 160);
-  
-  const quality = "ultra-detailed masterpiece, photorealistic, 8k, sharp focus, cinematic lighting, professional studio work, intricate textures, masterpiece, ray-traced";
-
-  const mode =
-    outputMode === "hero-real"
-      ? `${quality}, photoreal luxury hero product shot, cinema 4D, volumetric lighting, premium e-commerce depth`
-      : `${quality}, premium die-cut vinyl sticker, thick clean white outline, centered, clean silhouette, isolated on white background, no text, no watermark`;
-      
-  const lvl = "hyper-realistic materials, vibrant global illumination, perfect artistic symmetry";
-
-  let out = [u, st, mode, lvl].filter(Boolean).join(", ");
-  out = out.replace(/[^a-zA-Z0-9\s,]/g, "");
-  
-  if (out.length > POLL_URL_MAX) out = out.slice(0, POLL_URL_MAX);
-  return out;
-}
 
 function pollinationsImageUrl(promptText, opts) {
   const { width = 1024, height = 1024, seed, model = "flux" } = opts;
@@ -123,100 +65,47 @@ function pollinationsImageUrl(promptText, opts) {
   q.set("seed", String(seed));
   q.set("width", String(width));
   q.set("height", String(height));
-  q.set("prompt", promptText);
   q.set("enhance", "true"); 
   q.set("nologo", "true");  
-
-  // Proxy to avoid browser direct-load limits (with direct fallback on fail)
-  return `/api/image?${q.toString()}`;
+  return `https://pollinations.ai/p/${encodeURIComponent(promptText)}?${q.toString()}`;
 }
 
-function pollinationsDirectUrl(promptText, opts) {
-  const { width = 1024, height = 1024, seed, model = "flux" } = opts;
-  return `https://pollinations.ai/p/${encodeURIComponent(promptText)}?width=${width}&height=${height}&seed=${seed}&model=${model}&enhance=true&nologo=true`;
-}
+const SVG_SYS = `You are a Senior Vector Architect. Raw <svg> only. Root tag: <svg viewBox="-250 -250 500 500">. Fully centered.`;
 
-/* ─── SVG SYSTEM PROMPT (SENIOR ARCHITECT EDITION) ───────── */
-const SVG_SYS = `You are a Senior Vector Architect. Your task is to generate perfectly composed character stickers.
-- Grid: Your coordinate system is center-based. The center of the character is (0, 0).
-- Constraints: Maintain all paths within a -200 to +200 bounding box. This ensures NO cutoffs.
-- Framing: The character must be fully visible and centered.
-- Anatomy: For characters, ensure eyes, head, and features are proportionately correct.
-- Format: Raw <svg> only. Root tag: <svg viewBox="-250 -250 500 500">.`;
-
-async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchestratorLevel, onChunk) {
-  const orchestratorBrief = buildOrchestratorBrief(prompt, outputMode, orchestratorLevel);
-  const userMsg = `${orchestratorBrief}\n\nStyle: ${styleSvgPrompt}\n\nOutput ONLY the raw SVG code.`;
-
-  const pollKey = import.meta.env.VITE_POLLINATIONS_API_KEY || "";
+async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, onChunk) {
   let url = "https://gen.pollinations.ai/v1/chat/completions";
   let body = {
     model: "openai", 
     messages: [
       { role: "system", content: SVG_SYS },
-      { role: "user", content: userMsg }
+      { role: "user", content: `Generate SVG for: ${prompt} in style ${styleSvgPrompt}` }
     ],
     stream: true
   };
-
-  const headers = { "Content-Type": "application/json" };
-  if (pollKey) headers["Authorization"] = `Bearer ${pollKey}`;
-
   try {
-    let res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-
-    if (!res.ok) {
-      url = "/api/generate";
-      body.model = "gpt-4o";
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-    }
-
-    if (!res.ok) {
-      const errTxt = await res.text();
-      throw new Error(`API Error: ${res.status} - ${errTxt.slice(0, 100)}`);
-    }
-
+    let res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let fullContent = "";
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
+      const lines = decoder.decode(value).split('\n');
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const dataStr = line.slice(6).trim();
           if (dataStr === '[DONE]') break;
           try {
             const data = JSON.parse(dataStr);
-            const content = data.choices[0]?.delta?.content || "";
-            fullContent += content;
+            fullContent += data.choices[0]?.delta?.content || "";
             if (onChunk) onChunk(fullContent);
           } catch (e) {}
         }
       }
     }
     const match = fullContent.match(/<svg[\s\S]*?<\/svg>/i);
-    if (!match) throw new Error("No SVG found.");
-    return { type: "svg", svg: match[0] };
+    return { type: "svg", svg: match?.[0] };
   } catch (err) { throw err; }
-}
-
-function generateWithPollinations(prompt, styleImgPrompt, seed, outputMode, orchestratorLevel) {
-  const compact = buildPollinationsPromptCompact(prompt, styleImgPrompt, outputMode, orchestratorLevel);
-  const url = pollinationsImageUrl(compact, { width: 1024, height: 1024, seed, model: "flux" });
-  return { type: "image", url, seed, imagePrompt: compact, pollModel: "flux" };
-}
-
-function pollinationsHiRes(imagePrompt, seed, pollModel, outputMode) {
-  const size = 1536;
-  return pollinationsImageUrl(imagePrompt, { width: size, height: size, seed, model: pollModel || "flux" });
 }
 
 function dlLink(url, name) {
@@ -226,28 +115,22 @@ function dlLink(url, name) {
 function dlSvg(svgStr, name) {
   const b = new Blob([svgStr], { type:"image/svg+xml;charset=utf-8" });
   const u = URL.createObjectURL(b); dlLink(u, name);
-  setTimeout(() => URL.revokeObjectURL(u), 2000);
 }
 async function svgToPng(svgStr, size) {
   return new Promise((res, rej) => {
-    const b = new Blob([svgStr], { type:"image/svg+xml;charset=utf-8" });
-    const u = URL.createObjectURL(b);
     const img = new Image();
     img.onload = () => {
       const c = document.createElement("canvas"); c.width=size; c.height=size;
       c.getContext("2d").drawImage(img, 0, 0, size, size);
-      URL.revokeObjectURL(u);
-      try { res(c.toDataURL("image/png")); } catch(e) { rej(e); }
+      res(c.toDataURL("image/png"));
     };
-    img.onerror = () => { URL.revokeObjectURL(u); rej(new Error("render fail")); };
-    img.src = u;
+    img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgStr)));
   });
 }
 async function fetchAsDownload(imgUrl, name) {
   try {
     const r = await fetch(imgUrl); const b = await r.blob();
     const u = URL.createObjectURL(b); dlLink(u, name);
-    setTimeout(() => URL.revokeObjectURL(u), 2000);
   } catch { window.open(imgUrl, "_blank"); }
 }
 
@@ -255,50 +138,34 @@ function SvgMockup({ svg }) {
   const containerRef = useRef(null);
   useEffect(() => {
     if (!containerRef.current || !svg) return;
-    try {
-      const svgEl = containerRef.current.querySelector("svg");
-      if (svgEl) {
-        svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
-        svgEl.setAttribute("width", "100%"); svgEl.setAttribute("height", "100%");
-      }
-    } catch(e) {}
+    const svgEl = containerRef.current.querySelector("svg");
+    if (svgEl) {
+      svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
+      svgEl.setAttribute("width", "100%"); svgEl.setAttribute("height", "100%");
+    }
   }, [svg]);
   return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
-      <div style={{ position:"relative" }}>
-        <div style={{ position:"absolute", bottom:-11, left:"14%", right:"14%", height:26, background:"radial-gradient(ellipse,rgba(0,0,0,.26) 0%,transparent 70%)", filter:"blur(9px)" }} />
-        <div style={{ width:270, height:270, borderRadius:28, background:"#fff", padding:11, boxShadow:"0 1px 4px rgba(0,0,0,.08),0 10px 40px rgba(0,0,0,.16)", position:"relative", overflow:"hidden" }}>
-          <div ref={containerRef} dangerouslySetInnerHTML={{ __html: svg }} style={{ width:"100%", height:"100%", borderRadius:19 }} />
-          <div style={{ position:"absolute", top:11, left:11, right:"46%", bottom:"54%", borderRadius:"19px 19px 55% 0", background:"linear-gradient(158deg,rgba(255,255,255,.32) 0%,transparent 100%)", pointerEvents:"none" }} />
-        </div>
-      </div>
+    <div style={{ width:270, height:270, borderRadius:28, background:"#fff", padding:11, boxShadow:"0 10px 40px rgba(0,0,0,.16)", position:"relative" }}>
+      <div ref={containerRef} dangerouslySetInnerHTML={{ __html: svg }} style={{ width:"100%", height:"100%", borderRadius:19 }} />
     </div>
   );
 }
 
 function ImgMockup({ src, onLoad, onError, loading }) {
   return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
-      <div style={{ position:"relative" }}>
-        <div style={{ position:"absolute", bottom:-11, left:"14%", right:"14%", height:26, background:"radial-gradient(ellipse,rgba(0,0,0,.26) 0%,transparent 70%)", filter:"blur(9px)" }} />
-        <div style={{ width:270, height:270, borderRadius:28, background:"#fff", padding:11, boxShadow:"0 1px 4px rgba(0,0,0,.08),0 10px 40px rgba(0,0,0,.16)", position:"relative", overflow:"hidden" }}>
-          {loading && (
-            <div style={{ position:"absolute", inset:11, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:2, background:"rgba(255,255,255,.93)", borderRadius:19 }}>
-               <div style={{ width:40, height:40, borderRadius:"50%", border:"3px solid #f3f0ff", borderTopColor:"var(--accent)", animation:"spin .9s linear infinite", marginBottom:8 }} />
-               <span style={{ fontSize:10, color:"var(--accent)", fontFamily:"var(--mono)" }}>loading masterpiece...</span>
-            </div>
-          )}
-          <img src={src} alt="sticker" onLoad={onLoad} onError={onError} style={{ width:"100%", height:"100%", objectFit:"contain", borderRadius:19, display:"block", opacity:loading?0:1, transition:"opacity .4s" }} />
-          <div style={{ position:"absolute", top:11, left:11, right:"46%", bottom:"54%", borderRadius:"19px 19px 55% 0", background:"linear-gradient(158deg,rgba(255,255,255,.32) 0%,transparent 100%)", pointerEvents:"none", opacity:loading?0:1 }} />
+    <div style={{ position:"relative", width:270, height:270, borderRadius:28, background:loading?"rgba(255,255,255,.05)":"#fff", padding:11, boxShadow:"0 10px 40px rgba(0,0,0,.2)", overflow:"hidden" }}>
+      {loading && (
+        <div style={{ position:"absolute", inset:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:2, background:"rgba(0,0,0,.4)", backdropFilter:"blur(5px)" }}>
+           <div style={{ width:32, height:32, border:"3px solid rgba(228,92,58,.2)", borderTopColor:"#e45c3a", borderRadius:"50%", animation:"spin .8s linear infinite" }} />
+           <span style={{ fontSize:10, color:"#e45c3a", fontFamily:"monospace", marginTop:10, letterSpacing:2 }}>BRUSHING...</span>
         </div>
-      </div>
+      )}
+      <img src={src} alt="sticker" onLoad={onLoad} onError={onError} style={{ width:"100%", height:"100%", objectFit:"contain", borderRadius:19, opacity:loading?0:1, transition:"opacity .8s" }} />
     </div>
   );
 }
 
 export default function App() {
-  const [engine, setEngine] = useState("auto");
-  const [detectedEngine, setDetectedEngine] = useState("claude");
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState("die-cut");
   const [outputMode, setOutputMode] = useState("sticker-pro");
@@ -309,23 +176,11 @@ export default function App() {
   const [error, setError] = useState("");
   const [dlStatus, setDlStatus] = useState("");
 
-  const activeEngine = engine === "auto" ? detectedEngine : engine;
   const sel = STYLES.find(s => s.id === style) || STYLES[0];
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch("https://gen.pollinations.ai/v1/models");
-        setDetectedEngine(r.ok ? "claude" : "pollinations");
-      } catch { setDetectedEngine("pollinations"); }
-    })();
-  }, []);
 
   const generate = useCallback(async () => {
     if (!prompt.trim() || loading) return;
-    setLoading(true); setError(""); setResult(null); setDlStatus(""); setImgLoading(false);
-
-    console.log("Council Debate Active: Perfecting the masterpiece brief...");
+    setLoading(true); setError(""); setResult(null); setImgLoading(false);
     try {
       const optimizedPrompt = await fetch("/api/optimize-prompt", {
         method: "POST",
@@ -334,125 +189,95 @@ export default function App() {
       }).then(r => r.json()).then(d => d.optimized || prompt.trim());
 
       const seed = Math.floor(Math.random() * 999999);
-      const r = generateWithPollinations(optimizedPrompt, sel.img, seed, outputMode, "cinematic");
-      const entry = { ...r, type: "image", prompt: prompt.trim(), style, outputMode, ts: Date.now(), imagePrompt: optimizedPrompt };
-      
-      setResult(entry);
-      setImgLoading(true);
-      setHistory(h => [entry, ...h].slice(0, 20));
-    } catch (err) {
-      setError(err.message || "Ensemble failed.");
-      setLoading(false);
-    }
-  }, [prompt, style, loading, sel, outputMode]);
+      const url = pollinationsImageUrl(optimizedPrompt, { seed, model: "flux" });
+      const entry = { type: "image", url, seed, prompt: prompt.trim(), imagePrompt: optimizedPrompt, style, outputMode, ts: Date.now() };
+      setResult(entry); setImgLoading(true); setHistory(h => [entry, ...h].slice(0, 15));
+    } catch (err) { setError("Ensemble failed."); setLoading(false); }
+  }, [prompt, style, loading, outputMode]);
 
   const onImgLoad = useCallback(() => { setImgLoading(false); setLoading(false); }, []);
-  
-  const onImgError = useCallback(() => { 
-    setResult(prev => {
-      if (!prev || prev.isDirect) {
-        setError("AI Engine is temporarily overloaded. Please try again in 30 seconds.");
-        setLoading(false); setImgLoading(false);
-        return prev;
-      }
-      // Fail-Safe: Switch to direct Pollinations URL if proxy fails
-      console.warn("Proxy failed, falling back to Direct Pollinations Link...");
-      const dUrl = pollinationsDirectUrl(prev.imagePrompt, { seed: prev.seed, model: "flux" });
-      return { ...prev, url: dUrl, isDirect: true };
-    });
-  }, []);
+  const onImgError = useCallback(() => { setError("Flux engine overloaded."); setLoading(false); setImgLoading(false); }, []);
 
   const selectHist = useCallback((item) => {
     setResult(item); setPrompt(item.prompt); setStyle(item.style);
-    if (item.outputMode) setOutputMode(item.outputMode);
-    setError(""); setDlStatus(""); setLoading(false); setImgLoading(false);
+    setError(""); setImgLoading(false); setLoading(false);
   }, []);
 
   const download = useCallback(async (hiRes) => {
     if (!result) return;
     setDlStatus("dl");
-    try {
-      if (result.type === "svg") {
-        if (hiRes) {
-          const png = await svgToPng(result.svg, 2048);
-          dlLink(png, `sticker-2048.png`);
-        } else { dlSvg(result.svg, `sticker.svg`); }
-      } else {
-        const url = hiRes ? pollinationsHiRes(result.imagePrompt, result.seed, result.pollModel, result.outputMode) : result.url;
-        await fetchAsDownload(url, `sticker-${result.seed}.png`);
-      }
-      setDlStatus("done");
-    } catch { setDlStatus("done"); }
-    setTimeout(() => setDlStatus(""), 2500);
+    if (result.type === "svg") {
+      if (hiRes) { const png = await svgToPng(result.svg, 2048); dlLink(png, "sticker.png"); }
+      else dlSvg(result.svg, "sticker.svg");
+    } else {
+      const url = hiRes ? pollinationsImageUrl(result.imagePrompt, { seed: result.seed, width:2048, height:2048, model:"flux" }) : result.url;
+      await fetchAsDownload(url, "sticker.png");
+    }
+    setDlStatus("done"); setTimeout(() => setDlStatus(""), 2000);
   }, [result]);
-
-  const hasResult = result && (result.type==="svg" || (result.type==="image" && !imgLoading));
 
   return (
     <div className="root">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=DM+Mono:wght@400;500&display=swap');
-        :root {
-          --bg:#0c0c11;--bg1:rgba(255,255,255,.022);--bg2:rgba(255,255,255,.038);--bgH:rgba(255,255,255,.065);
-          --bdr:rgba(255,255,255,.055);--bdrA:rgba(228,92,58,.4);--accent:#e45c3a;--accentG:rgba(228,92,58,.13);
-          --accent2:#f0a030;--ok:#34d399;--t1:#edeef2;--t2:rgba(255,255,255,.52);--t3:rgba(255,255,255,.22);--t4:rgba(255,255,255,.1);
-          --dsp:'Syne',sans-serif;--body:'DM Sans',sans-serif;--mono:'DM Mono',monospace;
-        }
-        *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--t1);font-family:var(--body)}
-        @keyframes fadeSlide{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
-        .P{background:var(--bg1);border:1px solid var(--bdr);border-radius:18px;padding:20px}
-        .L{font-family:var(--mono);font-size:10px;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase;display:block;margin-bottom:10px}
-        .SC{transition:all .2s;cursor:pointer;user-select:none}.SC:hover{transform:translateY(-1px);background:var(--bgH)!important}
-        .GB{transition:all .22s}.GB:not(:disabled):hover{transform:translateY(-2px);background:linear-gradient(135deg,#c93a1e,#e45c3a,#f0a030);box-shadow:0 8px 30px rgba(228,92,58,.35)}
-        .AB{transition:all .18s;cursor:pointer}.AB:hover{background:var(--bgH)!important}
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@800&family=DM+Sans:wght@400;700&display=swap');
+        :root { --bg:#0c0c11; --acc:#e45c3a; --t1:#fff; --t2:rgba(255,255,255,.6); --t3:rgba(255,255,255,.2); --bgH:rgba(255,255,255,.05); }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { background:var(--bg); color:var(--t1); font-family:'DM Sans',sans-serif; }
+        .P { background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.05); border-radius:18px; padding:20px; }
+        @keyframes spin { to { transform:rotate(360deg); } }
       `}</style>
-      <div style={{position:"relative",maxWidth:1120,margin:"0 auto",padding:"40px 20px"}}>
-        <header style={{textAlign:"center",marginBottom:40}}>
-          <h1 style={{fontFamily: "var(--dsp)", fontSize: 42, fontWeight: 800}}>Sticker Studio Pro</h1>
-          <p style={{color: "var(--t3)", fontFamily: "var(--mono)", fontSize: 11}}>
-            ORCHESTRATOR: GPT-4o (Reasoning) · ARTIST: Pollinations Flux (Painter)
-          </p>
+      <div style={{ maxWidth:1100, margin:"0 auto", padding:40 }}>
+        <header style={{ textAlign:"center", marginBottom:40 }}>
+          <h1 style={{ fontFamily:'Syne', fontSize:48, fontWeight:800, color: "var(--acc)" }}>Sticker Studio Pro</h1>
+          <p style={{ color:"var(--t3)", fontFamily:"monospace", fontSize:11, letterSpacing:2 }}>ORCHESTRATOR: GPT-4o · ARTIST: Pollinations Flux</p>
         </header>
-        <div style={{display:"grid",gridTemplateColumns:"400px 1fr",gap:30}}>
-          <div style={{display:"flex",flexDirection:"column",gap:15}}>
+        <div style={{ display:"grid", gridTemplateColumns:"400px 1fr", gap:30 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:15 }}>
             <div className="P">
-              <label className="L">Describe your sticker</label>
-              <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} rows={3} style={{width:"100%",background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:12,padding:12,color:"#fff"}} />
+              <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="A cute kitty..." rows={3} style={{ width:"100%", background:"#16161c", border:"1px solid #222", borderRadius:12, padding:15, color:"#fff", fontSize:14 }} />
             </div>
             <div className="P">
-              <label className="L">Style</label>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                {STYLES.map(s=>(
-                  <div key={s.id} onClick={()=>setStyle(s.id)} className="SC" style={{padding:10,borderRadius:10,background:style===s.id?"var(--accentG)":"var(--bg2)",border:style===s.id?"1px solid var(--accent)":"1px solid var(--bdr)"}}>
-                    {s.icon} {s.label}
+              <label style={{ fontSize:10, color:"#555", textTransform:"uppercase", letterSpacing:1 }}>Mode</label>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:8 }}>
+                {OUTPUT_MODES.map(m=>(
+                  <div key={m.id} onClick={()=>setOutputMode(m.id)} style={{ padding:10, borderRadius:10, background:outputMode===m.id?"rgba(228,92,58,.1)":"transparent", border:`1px solid ${outputMode===m.id?"#e45c3a":"#222"}`, cursor:"pointer", textAlign:"center", fontSize:12 }}>
+                    {m.label}
                   </div>
                 ))}
               </div>
             </div>
-            <button className="GB" onClick={generate} disabled={loading} style={{padding:16,borderRadius:12,background:"var(--accent)",border:"none",color:"#fff",fontWeight:700}}>
-              {loading ? "Generating Masterpiece..." : "✦ Generate Sticker"}
+            <div className="P">
+               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:5 }}>
+                 {STYLES.map(s=>(
+                   <div key={s.id} onClick={()=>setStyle(s.id)} style={{ padding:8, borderRadius:8, background:style===s.id?"#222":"transparent", border:`1px solid ${style===s.id?s.bg:"#111"}`, cursor:"pointer", display:"flex", alignItems:"center", gap:6, fontSize:11 }}>
+                     <span>{s.icon}</span> {s.label}
+                   </div>
+                 ))}
+               </div>
+            </div>
+            <button onClick={generate} disabled={loading} style={{ padding:18, borderRadius:15, background:"var(--acc)", border:"none", color:"#fff", fontWeight:700, cursor:"pointer", boxShadow:"0 8px 30px rgba(228,92,58,.3)" }}>
+              {loading ? "BRUSHING MASTERPIECE..." : "✦  Generate Masterpiece"}
             </button>
+            {error && <div style={{ fontSize:12, color:"#f87171", textAlign:"center" }}>{error}</div>}
           </div>
-          <div className="P" style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:500}}>
-            {loading && !result && <div style={{animation:"spin 1s linear infinite",width:40,height:40,border:"4px solid var(--accent)",borderTopColor:"transparent",borderRadius:"50%"}} />}
-            {result?.type === "image" && <ImgMockup src={result.url} onLoad={onImgLoad} onError={onImgError} loading={imgLoading} />}
-            {result?.type === "svg" && <SvgMockup svg={result.svg} />}
-            {hasResult && (
-              <div style={{display:"flex",gap:10,marginTop:20}}>
-                <button className="AB" onClick={()=>download(true)} style={{padding:"10px 20px",borderRadius:10,background:"var(--ok)",color:"#000",fontWeight:700}}>Download 2K PNG</button>
-                <button className="AB" onClick={()=>download(false)} style={{padding:"10px 20px",borderRadius:10,background:"var(--bg2)",color:"#fff"}}>Standard PNG</button>
-              </div>
-            )}
+          <div className="P" style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:500 }}>
+             {loading && !result && <div style={{ width:40, height:40, border:"4px solid #222", borderTopColor:"#e45c3a", borderRadius:"50%", animation:"spin 1s linear infinite" }} />}
+             {result?.type === "image" && <ImgMockup src={result.url} onLoad={onImgLoad} onError={onImgError} loading={imgLoading} />}
+             {result?.type === "svg" && <SvgMockup svg={result.svg} />}
+             {result && !loading && !imgLoading && !error && (
+               <div style={{ display:"flex", gap:10, marginTop:30 }}>
+                 <button onClick={()=>download(true)} style={{ padding:"12px 24px", borderRadius:12, background:"#e45c3a", color:"#fff", border:"none", fontWeight:700, cursor:"pointer" }}>{dlStatus==="dl"?"Saving...":"Download 2K PNG"}</button>
+                 <button onClick={()=>download(false)} style={{ padding:"12px 24px", borderRadius:12, background:"#222", color:"#fff", border:"none", cursor:"pointer" }}>Standard PNG</button>
+               </div>
+             )}
           </div>
         </div>
-        <div style={{marginTop:40}}>
-           <label className="L">History</label>
-           <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:10}}>
+        <div style={{ marginTop:40 }}>
+           <label style={{ fontSize:10, color:"#555", textTransform:"uppercase", letterSpacing:1, display:"block", marginBottom:15 }}>Masterpiece History</label>
+           <div style={{ display:"flex", gap:12, overflowX:"auto" }}>
              {history.map((h,i)=>(
-               <div key={i} onClick={()=>selectHist(h)} style={{width:60,height:60,borderRadius:10,overflow:"hidden",background:"#fff",cursor:"pointer",flexShrink:0}}>
-                 <img src={h.url} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+               <div key={i} onClick={()=>selectHist(h)} style={{ width:70, height:70, borderRadius:12, overflow:"hidden", border:"2px solid #222", cursor:"pointer" }}>
+                 <img src={h.url} style={{ width:"100%", height:"100%", objectFit:"cover" }} />
                </div>
              ))}
            </div>
