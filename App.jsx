@@ -67,7 +67,8 @@ function pollinationsImageUrl(promptText, opts) {
   q.set("height", String(height));
   q.set("enhance", "true"); 
   q.set("nologo", "true");  
-  return `https://pollinations.ai/p/${encodeURIComponent(promptText)}?${q.toString()}`;
+  // Use the ultra-stable Image API endpoint
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?${q.toString()}`;
 }
 
 const SVG_SYS = `You are a Senior Vector Architect. Raw <svg> only. Root tag: <svg viewBox="-250 -250 500 500">. Fully centered.`;
@@ -178,25 +179,46 @@ export default function App() {
 
   const sel = STYLES.find(s => s.id === style) || STYLES[0];
 
+  const onImgLoad = useCallback(() => { setImgLoading(false); setLoading(false); }, []);
+  
+  const onImgError = useCallback(() => { 
+    setResult(prev => {
+      if (!prev || prev.retryCount >= 2) {
+        setError("AI Service completely overloaded. Please try again in 1 minute.");
+        setLoading(false); setImgLoading(false);
+        return prev;
+      }
+      
+      const nextModel = prev.retryCount === 0 ? "turbo" : "zimage";
+      console.warn(`Flux overloaded. Falling back to recovery model: ${nextModel}`);
+      
+      const newUrl = pollinationsImageUrl(prev.imagePrompt, { 
+        seed: prev.seed + 1, 
+        model: nextModel 
+      });
+      
+      return { ...prev, url: newUrl, retryCount: (prev.retryCount || 0) + 1, pollModel: nextModel };
+    });
+  }, []);
+
   const generate = useCallback(async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true); setError(""); setResult(null); setImgLoading(false);
     try {
-      const optimizedPrompt = await fetch("/api/optimize-prompt", {
+      const response = await fetch("/api/optimize-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: prompt.trim() })
-      }).then(r => r.json()).then(d => d.optimized || prompt.trim());
+      });
+      const data = await response.json();
+      const optimizedPrompt = data.optimized || prompt.trim();
 
       const seed = Math.floor(Math.random() * 999999);
       const url = pollinationsImageUrl(optimizedPrompt, { seed, model: "flux" });
-      const entry = { type: "image", url, seed, prompt: prompt.trim(), imagePrompt: optimizedPrompt, style, outputMode, ts: Date.now() };
+      const entry = { type: "image", url, seed, prompt: prompt.trim(), imagePrompt: optimizedPrompt, style, outputMode, ts: Date.now(), retryCount: 0, pollModel: "flux" };
       setResult(entry); setImgLoading(true); setHistory(h => [entry, ...h].slice(0, 15));
-    } catch (err) { setError("Ensemble failed."); setLoading(false); }
+    } catch (err) { setError("Orchestration failed."); setLoading(false); }
   }, [prompt, style, loading, outputMode]);
-
-  const onImgLoad = useCallback(() => { setImgLoading(false); setLoading(false); }, []);
-  const onImgError = useCallback(() => { setError("Flux engine overloaded."); setLoading(false); setImgLoading(false); }, []);
 
   const selectHist = useCallback((item) => {
     setResult(item); setPrompt(item.prompt); setStyle(item.style);
