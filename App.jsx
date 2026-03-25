@@ -76,12 +76,11 @@ function buildOrchestratorBrief(prompt, outputMode, level) {
   }[level] || "Follow prompt accurately with clean composition.";
 
   const detailChecklist = `
-- SUBJECT DNA: Define key features (ears, eyes, cape, suit) BEFORE writing code.
-- COORDINATES: Canvas is 500x500. Draw the main subject centered at (250, 250).
-- BOUNDING BOX: Ensure all paths stay between 50 and 450 to avoid edge cutoffs.
-- SCALE: Subject MUST occupy the central 80% of the 500x500 area. 
-- ICONIC ELEMENTS: Use sharp geometric precision for character-specific details (e.g. Gotham Knight features).
-- LAYERING: Always include a thick white (#fff) uniform border path at the very bottom level.`;
+- COORDINATES: Use a center-aligned coordinate system. (0,0) is the center. 
+- DRAWING AREA: All paths MUST stay within the -200 to +200 range (total width 400).
+- SUBJECT DNA: Define signature features (mask, eyes, cowl, emblem) before code.
+- COMPOSITION: Subject MUST be perfectly centered. Use symmetrical balancing.
+- BORDER: A thick white (#fff) border MUST be the first graphic layer, slightly larger than the subject.`;
 
   return `ORCHESTRATOR BRIEF:
 - User request: "${prompt}"
@@ -143,13 +142,13 @@ function pollinationsImageUrl(promptText, opts) {
   return `/api/image?${q.toString()}`;
 }
 
-/* ─── SVG SYSTEM PROMPT (PERFECT CENTERING & VISIBILITY) ─── */
-const SVG_SYS = `You are a Senior Vector Architect. Your task is to generate pixel-perfect, centered character stickers.
-- Grid: Use a standard 500x500 coordinate system. The center is (250, 250).
-- Centering: Draw your main paths around the center. DO NOT use complex transforms if they might confuse your coordinate logic.
-- Visibility: Ensure the entire subject is visible within the 500x500 box. Scale to fill ~400px of space.
-- Style: Bold outlines, vibrant fills, professional layering.
-- Format: Raw <svg> only. No text. No preamble.`;
+/* ─── SVG SYSTEM PROMPT (SENIOR ARCHITECT EDITION) ───────── */
+const SVG_SYS = `You are a Senior Vector Architect. Your task is to generate perfectly composed character stickers.
+- Grid: Your coordinate system is center-based. The center of the character is (0, 0).
+- Constraints: Maintain all paths within a -200 to +200 bounding box. This ensures NO cutoffs.
+- Framing: The character must be fully visible and centered.
+- Anatomy: For characters, ensure eyes, head, and features are proportionately correct.
+- Format: Raw <svg> only. Root tag: <svg viewBox="-250 -250 500 500">.`;
 
 /* ─── API ENGINE (Reliable & Streaming) ───────────────────── */
 async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchestratorLevel, onChunk) {
@@ -440,7 +439,9 @@ export default function App() {
           outputMode, 
           orchestratorLevel,
           (partialContent) => {
-            const match = partialContent.match(/<svg[\s\S]*?<\/svg>/i);
+            let svg = partialContent;
+            // Senior Fix: If AI produced a broken root, wrap it to ensure visibility
+            const match = svg.match(/<svg[\s\S]*?<\/svg>/i);
             if (match) {
               setResult({ type: "svg", svg: match[0], prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now(), streaming: true });
             }
