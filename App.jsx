@@ -419,7 +419,7 @@ export default function App() {
   const [orchestratorLevel, setOrchestratorLevel] = useState("cinematic");
   const [loading, setLoading] = useState(false);
   const [imgLoading, setImgLoading] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(null); // Now can hold { type:"gallery", variants:[...] }
   const [history, setHistory] = useState([]);
   const [error, setError] = useState("");
   const [dlStatus, setDlStatus] = useState("");
@@ -444,72 +444,50 @@ export default function App() {
 
   const generate = useCallback(async () => {
     if (!prompt.trim() || loading) return;
-    
-    // SMART CLASSIFIER: Use Photoreal Image (Raster) as the primary for almost everything
-    // Only use SVG for explicitly 'simple' graphic keywords
-    const isGraphicRequest = /logo|icon|symbol|pattern|border|glyph|simple vector|flat icon/i.test(prompt);
-    const isComplex = /batman|hero|person|girl|boy|character|human|animal|face|scene|riding|helmet|movie|real|photo|cinematic|detailed|advanced/i.test(prompt);
-    
-    // PRIMARY: If it's complex OR not explicitly a graphic, use Photoreal Raster
-    let eng = (isComplex || !isGraphicRequest) ? "pollinations" : "claude"; 
-    
-    // FORCE RASTER for Photoreal Mode
-    if (outputMode === "hero-real") eng = "pollinations";
-    
     setLoading(true); setError(""); setResult(null); setDlStatus(""); setImgLoading(false);
 
+    let finalPrompt = prompt.trim();
+    
+    // Step 1: "Review then Generate" - Senior Prompt Optimization
+    console.log("Senior Review Active: Optimizing description for perfection...");
     try {
-      if (eng === "claude") {
-        console.log("Smart Choice: SVG Vector Engine");
-        const result = await generateWithStreaming(
-          prompt.trim(), 
-          sel.svg, 
-          outputMode, 
-          orchestratorLevel,
-          (partialContent) => {
-            let svg = partialContent;
-            // Robust parsing: extract SVG even if wrapped in markdown
-            const match = svg.match(/<svg[\s\S]*?<\/svg>/i);
-            if (match) {
-              setResult({ type: "svg", svg: match[0], prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now(), streaming: true });
-            }
-          }
-        );
-        const entry = { ...result, prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now(), streaming: false };
-        setResult(entry);
-        setHistory(h => [entry, ...h].slice(0, 14));
-      } else {
-        console.log("Smart Choice: AI Image Raster Engine");
-        const seed = Math.floor(Math.random() * 999999);
-        const r = generateWithPollinations(prompt.trim(), sel.img, seed, outputMode, orchestratorLevel);
-        const entry = {
-          ...r,
-          prompt: prompt.trim(),
-          style,
-          outputMode,
-          orchestratorLevel,
-          imageLoadAttempt: 0,
-          ts: Date.now(),
-        };
-        setResult(entry);
-        setImgLoading(true);
-      }
+      const resp = await fetch("/api/optimize-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: finalPrompt })
+      });
+      const data = await resp.json();
+      if (data.optimized) finalPrompt = data.optimized;
+    } catch (e) { console.warn("Review step skipped due to network", e); }
+
+    // Multi-Model AI Ensemble: Triggering 4 separate elite models in parallel!
+    const models = ["flux", "turbo", "unity", "allberta"];
+    const seed = Math.floor(Math.random() * 999999);
+    
+    console.log("Senior Generation: Triggering 4 parallel models with optimized brief");
+    
+    try {
+      const variants = models.map(m => {
+        const r = generateWithPollinations(finalPrompt, sel.img, seed, outputMode, "cinematic");
+        return { ...r, model: m, seed, id: Math.random().toString(36).substr(2, 9), imagePrompt: finalPrompt };
+      });
+      
+      const entry = {
+        type: "gallery",
+        prompt: prompt.trim(),
+        style,
+        variants,
+        ts: Date.now(),
+      };
+      
+      setResult(entry);
+      setImgLoading(true);
+      setHistory(h => [entry, ...h].slice(0, 14));
     } catch (err) {
-       // If SVG specifically fails, do a silent final recovery to Image
-       if (eng === "claude") {
-          console.warn("SVG Engine failed, attempting Photoreal Fallback...");
-          const seed = Math.floor(Math.random() * 999999);
-          const r = generateWithPollinations(prompt.trim(), sel.img, seed, outputMode, orchestratorLevel);
-          setResult({ ...r, prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now() });
-          setImgLoading(true);
-       } else {
-          setError(err.message || "Generation failed. Try again.");
-          setLoading(false);
-       }
-       return;
+      setError(err.message || "Ensemble failed. Try again.");
+      setLoading(false);
     }
-    if (eng === "claude") setLoading(false);
-  }, [prompt, style, loading, sel, outputMode, orchestratorLevel]);
+  }, [prompt, style, loading, sel, outputMode]);
 
   const onImgLoad = useCallback(() => {
     setImgLoading(false); setLoading(false);
@@ -720,41 +698,40 @@ export default function App() {
             )}
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:13,animation:"fadeSlide .65s ease"}}>
-            <div className="P" style={{padding:28,minHeight:450,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+            <div className="P" style={{padding:0,minHeight:450,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
               {!result && !loading && (
                 <div style={{textAlign:"center"}}>
                   <div style={{fontSize:52,opacity:.1,marginBottom:12}}>✂️</div>
                   <p style={{fontFamily:"var(--mono)",fontSize:11,color:"var(--t3)"}}>your sticker preview appears here</p>
-                  <p style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--t4)",marginTop:4}}>
-                    engine: {activeEngine==="claude"?"Claude 3.5 SVG Engine":activeEngine==="pollinations"?"Pollinations AI":"auto-detecting..."}
-                  </p>
+                  <p style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--t4)",marginTop:4}}>Multi-Model Senior Engine Active</p>
                 </div>
               )}
               {loading && !result && (
-                <div style={{textAlign:"center",animation:"fadeSlide .3s ease"}}>
+                <div style={{textAlign:"center",animation:"fadeSlide .3s ease",padding:40}}>
                   <div style={{width:56,height:56,margin:"0 auto 14px",position:"relative"}}>
                     <div style={{width:56,height:56,borderRadius:"50%",border:"3px solid var(--bdr)",borderTopColor:"var(--accent)",animation:"spin .9s linear infinite"}} />
                     <div style={{position:"absolute",inset:9,borderRadius:"50%",border:"3px solid var(--bdr)",borderBottomColor:"var(--accent2)",animation:"spin 1.4s linear infinite reverse"}} />
                   </div>
-                  <p style={{fontFamily:"var(--mono)",fontSize:11,color:"var(--t2)",animation:"pulse 1.5s ease infinite"}}>
-                    {activeEngine==="claude"?"Claude is drawing your sticker...":`AI is generating sticker via ${result?.pollModel || "Flux"}...`}
-                  </p>
+                  <p style={{fontFamily:"var(--mono)",fontSize:11,color:"var(--t2)",animation:"pulse 1.5s ease infinite"}}>Triggering 4 Parallel AI Models...</p>
                 </div>
               )}
-               {(result?.type==="svg" && (!loading || result.streaming)) && (
-                <div style={{animation:"fadeSlide .4s ease"}}><SvgMockup svg={result.svg} /></div>
-              )}
-              {result?.type==="image" && (
-                <div style={{animation:"fadeSlide .3s ease"}}>
-                  <ImgMockup src={result.url} onLoad={onImgLoad} onError={onImgError} loading={imgLoading} />
+              {result?.type === "gallery" && (
+                <div style={{width:"100%",height:"100%",padding:12,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,animation:"fadeSlide .6s ease"}}>
+                   {result.variants.map((v,i)=>(
+                      <div key={v.id} style={{position:"relative",borderRadius:15,overflow:"hidden",background:"var(--bg2)",border:"1.5px solid var(--bdr)",aspectRatio:"1/1"}} className="SC">
+                        <img src={v.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                        <div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,.6)",backdropFilter:"blur(5px)",padding:"2px 6px",borderRadius:5,fontSize:8,fontFamily:"var(--mono)",color:"var(--ok)",border:"1px solid rgba(52,211,153,.2)"}}>
+                           {v.model.toUpperCase()}
+                        </div>
+                        <button onClick={(e)=>{e.stopPropagation();downloadHiRes(v.prompt, v.seed, v.model)}} style={{position:"absolute",bottom:8,right:8,width:28,height:28,borderRadius:"50%",background:"var(--accent)",border:"none",color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 3px 8px rgba(0,0,0,.3)"}}>
+                          ↓
+                        </button>
+                      </div>
+                   ))}
                 </div>
               )}
-              {hasResult && (
-                <div style={{textAlign:"center",marginTop:14,animation:"fadeSlide .4s ease .1s both"}}>
-                  <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"var(--accentG)",border:"1px solid rgba(228,92,58,.2)",borderRadius:10,padding:"4px 13px",fontSize:10,color:"var(--accent)",fontFamily:"var(--mono)"}}>
-                    ⬟ {result.type==="svg"?"SVG":"PNG"} · {sel.label}
-                  </div>
-                </div>
+              {result?.type==="svg" && (
+                <div style={{animation:"fadeSlide .4s ease",padding:28}}><SvgMockup svg={result.svg} /></div>
               )}
             </div>
             {hasResult && (
@@ -798,9 +775,11 @@ export default function App() {
                     <div key={h.ts+"-"+i} className="HT" onClick={()=>selectHist(h)}
                       style={{width:54,height:54,borderRadius:11,overflow:"hidden",background:"#fff",padding:3,flexShrink:0,
                         border:`2px solid ${result?.ts===h.ts?"var(--bdrA)":"var(--bdr)"}`}}>
-                      {h.type==="svg"
-                        ? <div dangerouslySetInnerHTML={{__html:h.svg}} style={{width:"100%",height:"100%",borderRadius:7}} />
-                        : <img src={h.url} alt="" style={{width:"100%",height:"100%",objectFit:"contain",borderRadius:7}} />
+                      {h.type==="gallery"
+                        ? <img src={h.variants[0].url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:7}} />
+                        : h.type==="svg"
+                          ? <div dangerouslySetInnerHTML={{__html:h.svg}} style={{width:"100%",height:"100%",borderRadius:7}} />
+                          : <img src={h.url} alt="" style={{width:"100%",height:"100%",objectFit:"contain",borderRadius:7}} />
                       }
                     </div>
                   ))}

@@ -60,6 +60,38 @@ app.post('/api/generate', async (req, res) => {
   }
 });
 
+/* ─── API: Optimize & Review Prompt (Senior Orchestrator) ──── */
+app.post('/api/optimize-prompt', async (req, res) => {
+  const { prompt } = req.body;
+  const token = process.env.GITHUB_TOKEN;
+  if (!prompt) return res.status(400).send("Prompt required");
+  if (!token) return res.json({ optimized: prompt }); // Fallback if no token
+
+  try {
+    const response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: "You are a Senior Sticker Art Director. Rewrite the user prompt into a high-fidelity 'Masterpiece Sticker Brief'.\nRules:\n1. Ensure the subject is FULLY VISIBLE and centered (no cutoffs).\n2. Add keywords for: die-cut vinyl, thick white outline, centered composition, high-res detail, cinematic lighting.\n3. Output ONLY the optimized prompt text." },
+          { role: "user", content: `Review and perfect this idea for a high-quality sticker: "${prompt}"` }
+        ],
+        max_tokens: 200,
+        temperature: 0.7
+      })
+    });
+    const data = await response.json();
+    const optimized = data.choices[0].message.content.replace(/^"|"$/g, '').trim();
+    res.json({ optimized });
+  } catch (error) {
+    res.json({ optimized: prompt }); 
+  }
+});
+
 /** New: Image Proxy to prevent CORS/URL-length issues (Zero-Latency Streaming) */
 app.get('/api/image', async (req, res) => {
   const { prompt, model, seed, width, height } = req.query;
