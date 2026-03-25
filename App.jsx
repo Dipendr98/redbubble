@@ -167,7 +167,7 @@ STRICT EXECUTION RULES:
 - DO NOT use markdown or backticks. Output raw code.`;
 
 /* ─── API ENGINE (GPT-4o Proxy) ─────────────────────────── */
-/* ─── SVG ENGINE (Claude via Pollinations) ──────────────── */
+/* ─── SVG ENGINE (Claude via Unified Pollinations API) ──── */
 async function generateWithPollinationsSVG(prompt, styleSvgPrompt, outputMode, orchestratorLevel) {
   const orchestratorBrief = buildOrchestratorBrief(prompt, outputMode, orchestratorLevel);
   const modeRules = outputMode === "hero-real"
@@ -182,20 +182,40 @@ ${styleSvgPrompt}
 
 Remember: ONLY output the <svg>...</svg> code. Make it detailed with 45+ elements, expressive, and commercially attractive.`;
 
-  const q = new URLSearchParams();
-  q.set("model", "claude");
-  q.set("system", SVG_SYS);
-  if (POLLINATIONS_API_KEY) q.set("pollen", POLLINATIONS_API_KEY);
+  const headers = {
+    "Content-Type": "application/json",
+  };
+  if (POLLINATIONS_API_KEY) {
+    headers["Authorization"] = `Bearer ${POLLINATIONS_API_KEY}`;
+  }
+
+  const res = await fetch("https://gen.pollinations.ai/v1/chat/completions", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: "claude-large", // Uses the highest-tier Claude 3 available via Pollinations
+      messages: [
+        { role: "system", content: SVG_SYS },
+        { role: "user", content: userMsg }
+      ]
+    })
+  });
+
+  if (!res.ok) {
+    let errText = `SVG Engine Error: ${res.status}`;
+    try {
+      const errJSON = await res.json();
+      if (errJSON?.error?.message) errText += ` - ${errJSON.error.message}`;
+    } catch {}
+    throw new Error(errText);
+  }
   
-  const url = `https://text.pollinations.ai/${encodeURIComponent(userMsg)}?${q.toString()}`;
+  const data = await res.json();
+  const textContent = data.choices?.[0]?.message?.content || "";
   
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`SVG Engine Error: ${res.status}`);
-  
-  const text = await res.text();
-  const match = text.match(/<svg[\s\S]*?<\/svg>/i);
+  const match = textContent.match(/<svg[\s\S]*?<\/svg>/i);
   if (!match) {
-    console.error("No SVG found in response:", text);
+    console.error("No SVG found in response content:", textContent);
     throw new Error("SVG generation failed. The model may have returned text instead of a valid vector file.");
   }
   return { type: "svg", svg: match[0] };
@@ -386,7 +406,7 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch("https://text.pollinations.ai/health");
+        const r = await fetch("https://gen.pollinations.ai/v1/models");
         if (r.ok) {
           setDetectedEngine("claude");
         } else {
