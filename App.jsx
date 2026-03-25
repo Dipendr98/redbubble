@@ -100,9 +100,6 @@ function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, 
   const u = (userPrompt || "").trim().replace(/\s+/g, " ").slice(0, 320);
   const st = (styleImgPrompt || "").trim().replace(/\s+/g, " ").slice(0, 160);
   
-  // Model-specific reinforcement for "Best Model" (Flux/Z-image)
-  // Re-injecting Ultra-High Quality Boosters
-  // Re-injecting Ultra-High Quality Boosters (MAX REALISM)
   const quality = "ultra-detailed masterpiece, photorealistic, 8k, sharp focus, cinematic lighting, professional studio work, intricate textures, masterpiece, ray-traced";
 
   const mode =
@@ -113,8 +110,6 @@ function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, 
   const lvl = "hyper-realistic materials, vibrant global illumination, perfect artistic symmetry";
 
   let out = [u, st, mode, lvl].filter(Boolean).join(", ");
-  
-  // Final cleaning: REMOVE all special characters to avoid URL breakage
   out = out.replace(/[^a-zA-Z0-9\s,]/g, "");
   
   if (out.length > POLL_URL_MAX) out = out.slice(0, POLL_URL_MAX);
@@ -129,10 +124,9 @@ function pollinationsImageUrl(promptText, opts) {
   q.set("width", String(width));
   q.set("height", String(height));
   q.set("prompt", promptText);
-  q.set("enhance", "true"); // Force AI upscaling/enhancement
-  q.set("nologo", "true");  // Remove watermarks for professional look
+  q.set("enhance", "true"); 
+  q.set("nologo", "true");  
 
-  // Use backend proxy to avoid direct browser <img src> issues and URL length limits
   return `/api/image?${q.toString()}`;
 }
 
@@ -144,18 +138,14 @@ const SVG_SYS = `You are a Senior Vector Architect. Your task is to generate per
 - Anatomy: For characters, ensure eyes, head, and features are proportionately correct.
 - Format: Raw <svg> only. Root tag: <svg viewBox="-250 -250 500 500">.`;
 
-/* ─── API ENGINE (Reliable & Streaming) ───────────────────── */
 async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchestratorLevel, onChunk) {
   const orchestratorBrief = buildOrchestratorBrief(prompt, outputMode, orchestratorLevel);
   const userMsg = `${orchestratorBrief}\n\nStyle: ${styleSvgPrompt}\n\nOutput ONLY the raw SVG code.`;
 
-  // Use Pollinations as primary to avoid GitHub token activation issues (401)
   const pollKey = import.meta.env.VITE_POLLINATIONS_API_KEY || "";
-  
-  // Primary engine: GPT-4o on Pollinations is usually much faster than Claude-large
   let url = "https://gen.pollinations.ai/v1/chat/completions";
   let body = {
-    model: "openai", // GPT-4o: extremely fast and excellent reasoning
+    model: "openai", 
     messages: [
       { role: "system", content: SVG_SYS },
       { role: "user", content: userMsg }
@@ -167,15 +157,9 @@ async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchest
   if (pollKey) headers["Authorization"] = `Bearer ${pollKey}`;
 
   try {
-    let res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body)
-    });
+    let res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
 
     if (!res.ok) {
-      // Secondary fallback to local proxy if Pollinations is down
-      console.warn("Pollinations failed, trying local proxy...");
       url = "/api/generate";
       body.model = "gpt-4o";
       res = await fetch(url, {
@@ -197,10 +181,8 @@ async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchest
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      
       const chunk = decoder.decode(value);
       const lines = chunk.split('\n');
-      
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const dataStr = line.slice(6).trim();
@@ -214,89 +196,32 @@ async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchest
         }
       }
     }
-
     const match = fullContent.match(/<svg[\s\S]*?<\/svg>/i);
-    if (!match) throw new Error("No SVG found in response.");
+    if (!match) throw new Error("No SVG found.");
     return { type: "svg", svg: match[0] };
-  } catch (err) {
-    throw err;
-  }
+  } catch (err) { throw err; }
 }
 
-/* ─── POLLINATIONS ENGINE (Fallback) ─────────────────────── */
 function generateWithPollinations(prompt, styleImgPrompt, seed, outputMode, orchestratorLevel) {
   const compact = buildPollinationsPromptCompact(prompt, styleImgPrompt, outputMode, orchestratorLevel);
-  const w = 1024;
-  const h = 1024;
-  const url = pollinationsImageUrl(compact, { width: w, height: h, seed, model: "flux" });
-  return {
-    type: "image",
-    url,
-    seed,
-    imagePrompt: compact,
-    pollW: w,
-    pollH: h,
-    pollModel: "flux",
-  };
+  const url = pollinationsImageUrl(compact, { width: 1024, height: 1024, seed, model: "flux" });
+  return { type: "image", url, seed, imagePrompt: compact, pollModel: "flux" };
 }
 
 function pollinationsHiRes(imagePrompt, seed, pollModel, outputMode) {
-  const size = outputMode === "hero-real" ? 1536 : 1536;
-  return pollinationsImageUrl(imagePrompt, {
-    width: size,
-    height: size,
-    seed,
-    model: pollModel || "flux",
-  });
+  const size = 1536;
+  return pollinationsImageUrl(imagePrompt, { width: size, height: size, seed, model: pollModel || "flux" });
 }
 
-function pollinationsRetryUrl(entry, styleImgPrompt, attempt) {
-  const seed = Math.floor(Math.random() * 999999);
-  let compact = entry.imagePrompt;
-  let w = 1024;
-  let h = 1024;
-  let model = entry.pollModel || "flux";
-  let nologo = true;
-
-  if (attempt === 1) {
-    model = "zimage";
-    w = 1024;
-    h = 1024;
-  } else if (attempt === 2) {
-    model = "turbo";
-    w = 768;
-    h = 768;
-  } else {
-    const minimal = buildPollinationsPromptCompact(entry.prompt || "", styleImgPrompt || "", entry.outputMode || "sticker-pro", "standard");
-    compact = minimal.slice(0, 400);
-    model = "turbo";
-    w = 512;
-    h = 512;
-    nologo = false;
-  }
-
-  return {
-    url: pollinationsImageUrl(compact, { width: w, height: h, seed, model, nologo }),
-    seed,
-    imagePrompt: compact,
-    pollW: w,
-    pollH: h,
-    pollModel: model,
-  };
-}
-
-/* ─── DOWNLOAD HELPERS ───────────────────────────────────── */
 function dlLink(url, name) {
   const a = document.createElement("a"); a.href = url; a.download = name; a.target="_blank";
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
-
 function dlSvg(svgStr, name) {
   const b = new Blob([svgStr], { type:"image/svg+xml;charset=utf-8" });
   const u = URL.createObjectURL(b); dlLink(u, name);
   setTimeout(() => URL.revokeObjectURL(u), 2000);
 }
-
 async function svgToPng(svgStr, size) {
   return new Promise((res, rej) => {
     const b = new Blob([svgStr], { type:"image/svg+xml;charset=utf-8" });
@@ -312,7 +237,6 @@ async function svgToPng(svgStr, size) {
     img.src = u;
   });
 }
-
 async function fetchAsDownload(imgUrl, name) {
   try {
     const r = await fetch(imgUrl); const b = await r.blob();
@@ -321,31 +245,18 @@ async function fetchAsDownload(imgUrl, name) {
   } catch { window.open(imgUrl, "_blank"); }
 }
 
-/* ─── SVG MOCKUP (WITH PERFECT-FRAME NORMALIZER) ─────────── */
 function SvgMockup({ svg }) {
   const containerRef = useRef(null);
-  const [viewBox, setViewBox] = useState("0 0 500 500");
-
   useEffect(() => {
-    // Normalization: Scan paths and auto-calculate perfect framing to prevent cutoffs
     if (!containerRef.current || !svg) return;
     try {
-      // Find the first SVG inside the container
       const svgEl = containerRef.current.querySelector("svg");
-      if (!svgEl) return;
-      
-      // Attempt to find the bounding box of the art. 
-      // Since it's not yet rendered with full size, we use a heuristic or just ensure 
-      // the viewBox isn't cutting off. 
-      // If the AI gave us a very different coordinate set, we want to center it.
-      
-      // Fast fix: Ensure the SVG preserves aspect ratio and fills the space.
-      svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
-      svgEl.setAttribute("width", "100%");
-      svgEl.setAttribute("height", "100%");
+      if (svgEl) {
+        svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
+        svgEl.setAttribute("width", "100%"); svgEl.setAttribute("height", "100%");
+      }
     } catch(e) {}
   }, [svg]);
-
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
       <div style={{ position:"relative" }}>
@@ -355,19 +266,10 @@ function SvgMockup({ svg }) {
           <div style={{ position:"absolute", top:11, left:11, right:"46%", bottom:"54%", borderRadius:"19px 19px 55% 0", background:"linear-gradient(158deg,rgba(255,255,255,.32) 0%,transparent 100%)", pointerEvents:"none" }} />
         </div>
       </div>
-      <div style={{ display:"flex", gap:9, alignItems:"flex-end", animation:"fadeSlide .3s ease" }}>
-        {[54,40,28].map((sz,i) => (
-          <div key={i} style={{ width:sz, height:sz, borderRadius:sz*.19, background:"#fff", padding:3, boxShadow:"0 3px 12px rgba(0,0,0,.14)", overflow:"hidden" }}>
-            <div dangerouslySetInnerHTML={{ __html: svg }} style={{ width:"100%", height:"100%", borderRadius:sz*.12 }} />
-          </div>
-        ))}
-        <span style={{ fontSize:10, color:"var(--t3)", fontFamily:"var(--mono)", marginLeft:4 }}>size variants</span>
-      </div>
     </div>
   );
 }
 
-/* ─── IMAGE MOCKUP ───────────────────────────────────────── */
 function ImgMockup({ src, onLoad, onError, loading }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16 }}>
@@ -376,50 +278,27 @@ function ImgMockup({ src, onLoad, onError, loading }) {
         <div style={{ width:270, height:270, borderRadius:28, background:"#fff", padding:11, boxShadow:"0 1px 4px rgba(0,0,0,.08),0 10px 40px rgba(0,0,0,.16)", position:"relative", overflow:"hidden" }}>
           {loading && (
             <div style={{ position:"absolute", inset:11, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:2, background:"rgba(255,255,255,.93)", borderRadius:19 }}>
-              <div style={{ width:40, height:40, borderRadius:"50%", border:"3px solid #f3f0ff", borderTopColor:"var(--accent)", animation:"spin .9s linear infinite", marginBottom:8 }} />
-              <span style={{ fontSize:10, color:"var(--accent)", fontFamily:"var(--mono)" }}>loading image...</span>
-              <span style={{ fontSize:9, color:"#aaa", fontFamily:"var(--mono)", marginTop:2 }}>~15-30 sec</span>
+               <div style={{ width:40, height:40, borderRadius:"50%", border:"3px solid #f3f0ff", borderTopColor:"var(--accent)", animation:"spin .9s linear infinite", marginBottom:8 }} />
+               <span style={{ fontSize:10, color:"var(--accent)", fontFamily:"var(--mono)" }}>loading masterpiece...</span>
             </div>
           )}
-          <img
-            key={src}
-            src={src}
-            alt="sticker"
-            referrerPolicy="no-referrer"
-            onLoad={onLoad}
-            onError={onError}
-            style={{ width:"100%", height:"100%", objectFit:"contain", borderRadius:19, display:"block", opacity:loading?0:1, transition:"opacity .4s" }}
-          />
+          <img src={src} alt="sticker" onLoad={onLoad} onError={onError} style={{ width:"100%", height:"100%", objectFit:"contain", borderRadius:19, display:"block", opacity:loading?0:1, transition:"opacity .4s" }} />
           <div style={{ position:"absolute", top:11, left:11, right:"46%", bottom:"54%", borderRadius:"19px 19px 55% 0", background:"linear-gradient(158deg,rgba(255,255,255,.32) 0%,transparent 100%)", pointerEvents:"none", opacity:loading?0:1 }} />
         </div>
       </div>
-      {!loading && (
-        <div style={{ display:"flex", gap:9, alignItems:"flex-end", animation:"fadeSlide .3s ease" }}>
-          {[54,40,28].map((sz,i) => (
-            <div key={i} style={{ width:sz, height:sz, borderRadius:sz*.19, background:"#fff", padding:3, boxShadow:"0 3px 12px rgba(0,0,0,.14)", overflow:"hidden" }}>
-              <img src={src} alt="" style={{ width:"100%", height:"100%", objectFit:"contain", borderRadius:sz*.12 }} />
-            </div>
-          ))}
-          <span style={{ fontSize:10, color:"var(--t3)", fontFamily:"var(--mono)", marginLeft:4 }}>size variants</span>
-        </div>
-      )}
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════
-   MAIN APP
-   ═══════════════════════════════════════════════════════════ */
 export default function App() {
   const [engine, setEngine] = useState("auto");
   const [detectedEngine, setDetectedEngine] = useState("claude");
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState("die-cut");
   const [outputMode, setOutputMode] = useState("sticker-pro");
-  const [orchestratorLevel, setOrchestratorLevel] = useState("cinematic");
   const [loading, setLoading] = useState(false);
   const [imgLoading, setImgLoading] = useState(false);
-  const [result, setResult] = useState(null); // Now can hold { type:"gallery", variants:[...] }
+  const [result, setResult] = useState(null);
   const [history, setHistory] = useState([]);
   const [error, setError] = useState("");
   const [dlStatus, setDlStatus] = useState("");
@@ -431,14 +310,8 @@ export default function App() {
     (async () => {
       try {
         const r = await fetch("https://gen.pollinations.ai/v1/models");
-        if (r.ok) {
-          setDetectedEngine("claude");
-        } else {
-          setDetectedEngine("pollinations");
-        }
-      } catch {
-        setDetectedEngine("pollinations");
-      }
+        setDetectedEngine(r.ok ? "claude" : "pollinations");
+      } catch { setDetectedEngine("pollinations"); }
     })();
   }, []);
 
@@ -446,93 +319,33 @@ export default function App() {
     if (!prompt.trim() || loading) return;
     setLoading(true); setError(""); setResult(null); setDlStatus(""); setImgLoading(false);
 
-    let finalPrompt = prompt.trim();
-    
-    // Step 1: "Review then Generate" - Senior Prompt Optimization
-    console.log("Senior Review Active: Optimizing description for perfection...");
+    console.log("Council Debate Active: Perfecting the masterpiece brief...");
     try {
-      const resp = await fetch("/api/optimize-prompt", {
+      const optimizedPrompt = await fetch("/api/optimize-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: finalPrompt })
-      });
-      const data = await resp.json();
-      if (data.optimized) finalPrompt = data.optimized;
-    } catch (e) { console.warn("Review step skipped due to network", e); }
+        body: JSON.stringify({ prompt: prompt.trim() })
+      }).then(r => r.json()).then(d => d.optimized || prompt.trim());
 
-    // Multi-Model AI Ensemble: Triggering 4 separate elite models in parallel!
-    const models = ["flux", "turbo", "unity", "allberta"];
-    const seed = Math.floor(Math.random() * 999999);
-    
-    console.log("Senior Generation: Triggering 4 parallel models with optimized brief");
-    
-    try {
-      const variants = models.map(m => {
-        const r = generateWithPollinations(finalPrompt, sel.img, seed, outputMode, "cinematic");
-        return { ...r, model: m, seed, id: Math.random().toString(36).substr(2, 9), imagePrompt: finalPrompt };
-      });
-      
-      const entry = {
-        type: "gallery",
-        prompt: prompt.trim(),
-        style,
-        variants,
-        ts: Date.now(),
-      };
+      const seed = Math.floor(Math.random() * 999999);
+      const r = generateWithPollinations(optimizedPrompt, sel.img, seed, outputMode, "cinematic");
+      const entry = { ...r, type: "image", prompt: prompt.trim(), style, outputMode, ts: Date.now(), imagePrompt: optimizedPrompt };
       
       setResult(entry);
       setImgLoading(true);
-      setHistory(h => [entry, ...h].slice(0, 14));
+      setHistory(h => [entry, ...h].slice(0, 20));
     } catch (err) {
-      setError(err.message || "Ensemble failed. Try again.");
+      setError(err.message || "Ensemble failed.");
       setLoading(false);
     }
   }, [prompt, style, loading, sel, outputMode]);
 
-  const onImgLoad = useCallback(() => {
-    setImgLoading(false); setLoading(false);
-    setResult(prev => {
-      if (prev) setHistory(h => { if (h.some(x => x.ts===prev.ts)) return h; return [prev,...h].slice(0,14); });
-      return prev;
-    });
-  }, []);
-
-  const onImgError = useCallback(async () => {
-    // If image fails, don't just error out. Think harder. Try SVG recovery!
-    setResult(prev => {
-      if (!prev || prev.type !== "image" || prev.recovering) return prev;
-      return { ...prev, recovering: true };
-    });
-
-    console.warn("Raster image failed. Attempting silent SVG Recovery...");
-    
-    try {
-      const recovery = await generateWithStreaming(
-        prompt.trim(), 
-        STYLES.find(s=>s.id===style)?.svg || STYLES[0].svg, 
-        outputMode, 
-        "standard",
-        (partialContent) => {
-          const match = partialContent.match(/<svg[\s\S]*?<\/svg>/i);
-          if (match) {
-            setResult({ type: "svg", svg: match[0], prompt: prompt.trim(), style, outputMode, ts: Date.now(), recovered: true, streaming: true });
-          }
-        }
-      );
-      const entry = { ...recovery, prompt: prompt.trim(), style, outputMode, ts: Date.now(), recovered: true, streaming: false };
-      setResult(entry);
-      setLoading(false); setImgLoading(false);
-    } catch (e) {
-      console.error("Recovery failed:", e);
-      setError("Critical Error: AI Image servers are down. Try a shorter prompt or wait 1 minute.");
-      setLoading(false); setImgLoading(false);
-    }
-  }, [prompt, style, outputMode]);
+  const onImgLoad = useCallback(() => { setImgLoading(false); setLoading(false); }, []);
+  const onImgError = useCallback(() => { setError("Image engine overloaded. Try again."); setLoading(false); setImgLoading(false); }, []);
 
   const selectHist = useCallback((item) => {
     setResult(item); setPrompt(item.prompt); setStyle(item.style);
     if (item.outputMode) setOutputMode(item.outputMode);
-    if (item.orchestratorLevel) setOrchestratorLevel(item.orchestratorLevel);
     setError(""); setDlStatus(""); setLoading(false); setImgLoading(false);
   }, []);
 
@@ -543,28 +356,18 @@ export default function App() {
       if (result.type === "svg") {
         if (hiRes) {
           const png = await svgToPng(result.svg, 2048);
-          dlLink(png, `sticker-2048-${Date.now()}.png`);
-        } else {
-          dlSvg(result.svg, `sticker-${Date.now()}.svg`);
-        }
+          dlLink(png, `sticker-2048.png`);
+        } else { dlSvg(result.svg, `sticker.svg`); }
       } else {
-        const styleImg = STYLES.find(s=>s.id===result.style)?.img || "";
-        const imgPrompt =
-          result.imagePrompt ||
-          buildPollinationsPromptCompact(result.prompt, styleImg, result.outputMode || outputMode, result.orchestratorLevel || orchestratorLevel);
-        if (hiRes) {
-          const u = pollinationsHiRes(imgPrompt, result.seed, result.pollModel, result.outputMode || outputMode);
-          await fetchAsDownload(u, `sticker-HQ-${result.seed}.png`);
-        } else {
-          await fetchAsDownload(result.url, `sticker-${result.seed}.png`);
-        }
+        const url = hiRes ? pollinationsHiRes(result.imagePrompt, result.seed, result.pollModel, result.outputMode) : result.url;
+        await fetchAsDownload(url, `sticker-${result.seed}.png`);
       }
       setDlStatus("done");
     } catch { setDlStatus("done"); }
     setTimeout(() => setDlStatus(""), 2500);
-  }, [result, outputMode, orchestratorLevel]);
+  }, [result]);
 
-  const hasResult = result && ((result.type==="svg") || (result.type==="image" && !imgLoading));
+  const hasResult = result && (result.type==="svg" || (result.type==="image" && !imgLoading));
 
   return (
     <div className="root">
@@ -576,222 +379,62 @@ export default function App() {
           --accent2:#f0a030;--ok:#34d399;--t1:#edeef2;--t2:rgba(255,255,255,.52);--t3:rgba(255,255,255,.22);--t4:rgba(255,255,255,.1);
           --dsp:'Syne',sans-serif;--body:'DM Sans',sans-serif;--mono:'DM Mono',monospace;
         }
-        *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg)}
-        .root{min-height:100vh;background:var(--bg);font-family:var(--body);color:var(--t1)}
+        *{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--t1);font-family:var(--body)}
         @keyframes fadeSlide{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
-        @keyframes shimmer{0%{background-position:-250% center}100%{background-position:250% center}}
-        textarea:focus,input:focus{outline:none}
-        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.06);border-radius:10px}
         .P{background:var(--bg1);border:1px solid var(--bdr);border-radius:18px;padding:20px}
         .L{font-family:var(--mono);font-size:10px;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase;display:block;margin-bottom:10px}
         .SC{transition:all .2s;cursor:pointer;user-select:none}.SC:hover{transform:translateY(-1px);background:var(--bgH)!important}
-        .PL{transition:all .15s;cursor:pointer;user-select:none}.PL:hover{background:var(--bgH)!important;transform:scale(1.04)}
-        .GB{transition:all .22s}.GB:not(:disabled):hover{transform:translateY(-2px);filter:brightness(1.08);box-shadow:0 8px 30px rgba(228,92,58,.35)!important}.GB:not(:disabled):active{transform:translateY(1px)}
-        .AB{transition:all .18s;cursor:pointer}.AB:hover{background:var(--bgH)!important;transform:translateY(-1px)}
-        .HT{transition:all .18s;cursor:pointer}.HT:hover{transform:scale(1.1);border-color:var(--bdrA)!important}
+        .GB{transition:all .22s}.GB:not(:disabled):hover{transform:translateY(-2px);background:linear-gradient(135deg,#c93a1e,#e45c3a,#f0a030);box-shadow:0 8px 30px rgba(228,92,58,.35)}
+        .AB{transition:all .18s;cursor:pointer}.AB:hover{background:var(--bgH)!important}
       `}</style>
-      <div style={{position:"fixed",inset:0,zIndex:0,pointerEvents:"none",overflow:"hidden"}}>
-        <div style={{position:"absolute",top:"-12%",left:"-6%",width:600,height:600,background:"radial-gradient(circle,rgba(228,92,58,.055) 0%,transparent 55%)",borderRadius:"50%"}} />
-        <div style={{position:"absolute",bottom:"-8%",right:"-4%",width:500,height:500,background:"radial-gradient(circle,rgba(240,160,48,.035) 0%,transparent 55%)",borderRadius:"50%"}} />
-        <div style={{position:"absolute",inset:0,opacity:.016,backgroundImage:"radial-gradient(circle,#fff 1px,transparent 1px)",backgroundSize:"28px 28px"}} />
-      </div>
-      <div style={{position:"relative",zIndex:1,maxWidth:1120,margin:"0 auto",padding:"28px 20px 70px"}}>
-        <header style={{textAlign:"center",marginBottom:30,animation:"fadeSlide .5s ease"}}>
-          <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"var(--accentG)",border:"1px solid rgba(228,92,58,.2)",borderRadius:99,padding:"5px 16px",marginBottom:12}}>
-            <span style={{width:7,height:7,borderRadius:"50%",background:"var(--accent)",display:"inline-block",animation:"pulse 2s ease infinite"}} />
-            <span style={{fontFamily:"var(--mono)",fontSize:10,color:"var(--accent)",letterSpacing:2,textTransform:"uppercase"}}>Sticker Studio</span>
-          </div>
-          <h1 style={{fontFamily:"var(--dsp)",fontSize:"clamp(28px,5vw,48px)",fontWeight:800,lineHeight:1.08,marginBottom:8,background:"linear-gradient(135deg,#fff 20%,var(--accent) 55%,var(--accent2) 90%)",backgroundSize:"250% auto",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",animation:"shimmer 6s linear infinite"}}>
-            Design. Preview. Sell.
-          </h1>
-          <p style={{color:"var(--t3)",fontFamily:"var(--mono)",fontSize:11}}>
-            AI sticker generator · Redbubble-ready · {activeEngine === "claude" ? "Claude 3.5 SVG Engine" : activeEngine === "pollinations" ? "Pollinations image engine" : "detecting engine..."}
-          </p>
+      <div style={{position:"relative",maxWidth:1120,margin:"0 auto",padding:"40px 20px"}}>
+        <header style={{textAlign:"center",marginBottom:40}}>
+          <h1 style={{fontFamily: "var(--dsp)", fontSize: 42, fontWeight: 800}}>Sticker Studio Pro</h1>
+          <p style={{color: "var(--t3)", fontFamily: "var(--mono)", fontSize: 11}}>Council of Agents Engine Active</p>
         </header>
-        <div style={{display:"grid",gridTemplateColumns:"420px 1fr",gap:20,alignItems:"start"}}>
-          <div style={{display:"flex",flexDirection:"column",gap:13,animation:"fadeSlide .55s ease"}}>
-            <div className="P" style={{padding:"14px 16px", background:"var(--accentG)", border:"1px solid rgba(228,92,58,.15)", borderRadius:18}}>
-               <div style={{fontSize:11,color:"var(--accent)",fontFamily:"var(--mono)", fontWeight:600, display:"flex", alignItems:"center", gap:8}}>
-                  <div style={{width:8,height:8,background:"var(--accent)",borderRadius:"50%",animation:"pulse 2s infinite"}} />
-                  SMART MASTERY ENGINE ACTIVE
-               </div>
-               <div style={{fontSize:9,color:"var(--accent)",fontFamily:"var(--mono)",marginTop:5,opacity:.85,lineHeight:1.4}}>
-                  Automatically configuring the best AI models and artistic depth to guarantee cinematic, high-fidelity stickers for your description.
-               </div>
+        <div style={{display:"grid",gridTemplateColumns:"400px 1fr",gap:30}}>
+          <div style={{display:"flex",flexDirection:"column",gap:15}}>
+            <div className="P">
+              <label className="L">Describe your sticker</label>
+              <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} rows={3} style={{width:"100%",background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:12,padding:12,color:"#fff"}} />
             </div>
             <div className="P">
-              <label className="L">✦ Describe your sticker</label>
-              <textarea value={prompt} onChange={e=>setPrompt(e.target.value)}
-                onKeyDown={e=>{if(e.key==="Enter"&&(e.metaKey||e.ctrlKey))generate()}}
-                placeholder="e.g. a cute girl wearing a hairband with flowers..."
-                rows={3}
-                style={{width:"100%",background:"var(--bg2)",border:"1px solid var(--bdr)",borderRadius:13,padding:"12px 14px",color:"var(--t1)",fontSize:14,resize:"none",fontFamily:"var(--body)",lineHeight:1.55,transition:"border .2s,box-shadow .2s"}}
-                onFocus={e=>{e.target.style.borderColor="var(--bdrA)";e.target.style.boxShadow="0 0 0 3px var(--accentG)"}}
-                onBlur={e=>{e.target.style.borderColor="var(--bdr)";e.target.style.boxShadow="none"}}
-              />
-              <span style={{fontSize:9,color:"var(--t4)",fontFamily:"var(--mono)",marginTop:5,display:"block"}}>⌘+Enter to generate</span>
-            </div>
-            <div className="P">
-              <label className="L">Quick ideas</label>
-              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                {IDEAS.map(i=>(
-                  <div key={i.label} className="PL" onClick={()=>setPrompt(i.p)}
-                    style={{padding:"5px 10px",borderRadius:18,background:"var(--bg2)",border:"1px solid var(--bdr)",fontSize:12,color:"var(--t2)",display:"flex",alignItems:"center",gap:4}}>
-                    <span style={{fontSize:13}}>{i.icon}</span>{i.label}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="P">
-              <label className="L">Output Mode</label>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-                {OUTPUT_MODES.map(m=>(
-                  <button key={m.id} className="AB" onClick={()=>setOutputMode(m.id)} style={{
-                    textAlign:"left",padding:"10px 11px",borderRadius:11,border:`1px solid ${outputMode===m.id?"var(--bdrA)":"var(--bdr)"}`,
-                    background:outputMode===m.id?"var(--accentG)":"var(--bg2)",color:outputMode===m.id?"var(--t1)":"var(--t2)"
-                  }}>
-                    <div style={{fontSize:12,fontWeight:600}}>{m.label}</div>
-                    <div style={{fontSize:9,fontFamily:"var(--mono)",opacity:.8,marginTop:2}}>{m.hint}</div>
-                  </button>
-                ))}
-              </div>
-              {outputMode==="hero-real" && (
-                <div style={{fontSize:9,color:"var(--t3)",fontFamily:"var(--mono)",marginTop:8}}>
-                  Hero Real uses image engine automatically for realistic output.
-                </div>
-              )}
-            </div>
-            <div className="P">
-              <label className="L">Sticker style</label>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+              <label className="L">Style</label>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                 {STYLES.map(s=>(
-                  <div key={s.id} className="SC" onClick={()=>setStyle(s.id)}
-                    style={{padding:"10px 12px",borderRadius:12,background:style===s.id?`linear-gradient(135deg,${s.bg}18,${s.bg}0a)`:"var(--bg2)",border:`1.5px solid ${style===s.id?s.bg+"50":"var(--bdr)"}`,display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:16,flexShrink:0}}>{s.icon}</span>
-                    <span style={{fontSize:12,fontWeight:600,color:style===s.id?"var(--t1)":"var(--t2)"}}>{s.label}</span>
-                    {style===s.id&&<div style={{marginLeft:"auto",width:7,height:7,borderRadius:"50%",background:s.bg,boxShadow:`0 0 10px ${s.bg}`}} />}
+                  <div key={s.id} onClick={()=>setStyle(s.id)} className="SC" style={{padding:10,borderRadius:10,background:style===s.id?"var(--accentG)":"var(--bg2)",border:style===s.id?"1px solid var(--accent)":"1px solid var(--bdr)"}}>
+                    {s.icon} {s.label}
                   </div>
                 ))}
               </div>
             </div>
-            <button className="GB" onClick={generate} disabled={loading||!prompt.trim()||(!detectedEngine&&engine==="auto")}
-              style={{
-                padding:"15px 0",borderRadius:15,border:"none",
-                cursor:loading||!prompt.trim()?"not-allowed":"pointer",
-                background:loading||!prompt.trim()?"rgba(228,92,58,.12)":"linear-gradient(135deg,#c93a1e,#e45c3a,#f0a030)",
-                color:"#fff",fontSize:15,fontWeight:700,fontFamily:"var(--dsp)",letterSpacing:.5,
-                boxShadow:loading?"none":"0 6px 28px rgba(228,92,58,.3)",
-                display:"flex",alignItems:"center",justifyContent:"center",gap:10,
-              }}>
-              {!detectedEngine && engine==="auto" ? (
-                <><div style={{width:14,height:14,border:"2px solid rgba(255,255,255,.25)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin .8s linear infinite"}} />Detecting engine...</>
-              ) : loading ? (
-                <><div style={{width:14,height:14,border:"2px solid rgba(255,255,255,.25)",borderTopColor:"#fff",borderRadius:"50%",animation:"spin .8s linear infinite"}} />Generating...</>
-              ) : "✦  Generate Sticker"}
+            <button className="GB" onClick={generate} disabled={loading} style={{padding:16,borderRadius:12,background:"var(--accent)",border:"none",color:"#fff",fontWeight:700}}>
+              {loading ? "Generating Masterpiece..." : "✦ Generate Sticker"}
             </button>
-            {error && (
-              <div style={{background:"rgba(239,68,68,.06)",border:"1px solid rgba(239,68,68,.15)",borderRadius:13,padding:"10px 14px",fontSize:12,color:"#f87171"}}>
-                ⚠ {error}
-              </div>
-            )}
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:13,animation:"fadeSlide .65s ease"}}>
-            <div className="P" style={{padding:0,minHeight:450,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
-              {!result && !loading && (
-                <div style={{textAlign:"center"}}>
-                  <div style={{fontSize:52,opacity:.1,marginBottom:12}}>✂️</div>
-                  <p style={{fontFamily:"var(--mono)",fontSize:11,color:"var(--t3)"}}>your sticker preview appears here</p>
-                  <p style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--t4)",marginTop:4}}>Multi-Model Senior Engine Active</p>
-                </div>
-              )}
-              {loading && !result && (
-                <div style={{textAlign:"center",animation:"fadeSlide .3s ease",padding:40}}>
-                  <div style={{width:56,height:56,margin:"0 auto 14px",position:"relative"}}>
-                    <div style={{width:56,height:56,borderRadius:"50%",border:"3px solid var(--bdr)",borderTopColor:"var(--accent)",animation:"spin .9s linear infinite"}} />
-                    <div style={{position:"absolute",inset:9,borderRadius:"50%",border:"3px solid var(--bdr)",borderBottomColor:"var(--accent2)",animation:"spin 1.4s linear infinite reverse"}} />
-                  </div>
-                  <p style={{fontFamily:"var(--mono)",fontSize:11,color:"var(--t2)",animation:"pulse 1.5s ease infinite"}}>Triggering 4 Parallel AI Models...</p>
-                </div>
-              )}
-              {result?.type === "gallery" && (
-                <div style={{width:"100%",height:"100%",padding:12,display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,animation:"fadeSlide .6s ease"}}>
-                   {result.variants.map((v,i)=>(
-                      <div key={v.id} style={{position:"relative",borderRadius:15,overflow:"hidden",background:"var(--bg2)",border:"1.5px solid var(--bdr)",aspectRatio:"1/1"}} className="SC">
-                        <img src={v.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} />
-                        <div style={{position:"absolute",top:8,left:8,background:"rgba(0,0,0,.6)",backdropFilter:"blur(5px)",padding:"2px 6px",borderRadius:5,fontSize:8,fontFamily:"var(--mono)",color:"var(--ok)",border:"1px solid rgba(52,211,153,.2)"}}>
-                           {v.model.toUpperCase()}
-                        </div>
-                        <button onClick={(e)=>{e.stopPropagation();downloadHiRes(v.prompt, v.seed, v.model)}} style={{position:"absolute",bottom:8,right:8,width:28,height:28,borderRadius:"50%",background:"var(--accent)",border:"none",color:"#fff",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 3px 8px rgba(0,0,0,.3)"}}>
-                          ↓
-                        </button>
-                      </div>
-                   ))}
-                </div>
-              )}
-              {result?.type==="svg" && (
-                <div style={{animation:"fadeSlide .4s ease",padding:28}}><SvgMockup svg={result.svg} /></div>
-              )}
-            </div>
+          <div className="P" style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:500}}>
+            {loading && !result && <div style={{animation:"spin 1s linear infinite",width:40,height:40,border:"4px solid var(--accent)",borderTopColor:"transparent",borderRadius:"50%"}} />}
+            {result?.type === "image" && <ImgMockup src={result.url} onLoad={onImgLoad} onError={onImgError} loading={imgLoading} />}
+            {result?.type === "svg" && <SvgMockup svg={result.svg} />}
             {hasResult && (
-              <div style={{display:"flex",gap:8,animation:"fadeSlide .3s ease"}}>
-                <button className="AB" onClick={()=>download(true)} style={{
-                  flex:3,padding:"13px 0",borderRadius:13,border:"1px solid rgba(52,211,153,.25)",
-                  background:dlStatus==="done"?"rgba(52,211,153,.1)":"rgba(52,211,153,.06)",
-                  color:"var(--ok)",fontSize:13,fontWeight:600,fontFamily:"var(--body)",
-                  display:"flex",alignItems:"center",justifyContent:"center",gap:7,
-                }}>
-                  {dlStatus==="done"?"✓ Saved!":dlStatus==="dl"?"Exporting...":"🔥  Hi-Res PNG (2048px)"}
-                </button>
-                <button className="AB" onClick={()=>download(false)} style={{
-                  flex:2,padding:"13px 0",borderRadius:13,border:"1px solid var(--bdr)",
-                  background:"var(--bg2)",color:"var(--t2)",fontSize:13,fontWeight:500,fontFamily:"var(--body)",
-                  display:"flex",alignItems:"center",justifyContent:"center",gap:6,
-                }}>
-                  ⬇ {result.type==="svg"?"SVG":"PNG 1024"}
-                </button>
-                <button className="AB" onClick={generate} style={{
-                  width:48,borderRadius:13,border:"1px solid var(--bdr)",background:"var(--bg2)",
-                  color:"var(--t2)",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",
-                }}>↺</button>
-              </div>
-            )}
-            {hasResult && (
-              <div style={{background:"rgba(52,211,153,.03)",border:"1px solid rgba(52,211,153,.1)",borderRadius:15,padding:"12px 16px",animation:"fadeSlide .4s ease .1s both"}}>
-                <div style={{fontSize:12,fontWeight:600,color:"var(--ok)",marginBottom:4}}>📤 Upload to Redbubble</div>
-                <div style={{fontSize:11,color:"var(--t3)",fontFamily:"var(--mono)",lineHeight:1.8}}>
-                  1. Download Hi-Res PNG 2048px (best for print)<br />
-                  2. redbubble.com → Add New Work → Upload<br />
-                  3. Enable "Stickers" → Set markup → Publish 🚀
-                </div>
-              </div>
-            )}
-            {history.length>0 && (
-              <div className="P" style={{padding:15}}>
-                <label className="L" style={{marginBottom:8}}>History ({history.length})</label>
-                <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-                  {history.map((h,i)=>(
-                    <div key={h.ts+"-"+i} className="HT" onClick={()=>selectHist(h)}
-                      style={{width:54,height:54,borderRadius:11,overflow:"hidden",background:"#fff",padding:3,flexShrink:0,
-                        border:`2px solid ${result?.ts===h.ts?"var(--bdrA)":"var(--bdr)"}`}}>
-                      {h.type==="gallery"
-                        ? <img src={h.variants[0].url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",borderRadius:7}} />
-                        : h.type==="svg"
-                          ? <div dangerouslySetInnerHTML={{__html:h.svg}} style={{width:"100%",height:"100%",borderRadius:7}} />
-                          : <img src={h.url} alt="" style={{width:"100%",height:"100%",objectFit:"contain",borderRadius:7}} />
-                      }
-                    </div>
-                  ))}
-                </div>
+              <div style={{display:"flex",gap:10,marginTop:20}}>
+                <button className="AB" onClick={()=>download(true)} style={{padding:"10px 20px",borderRadius:10,background:"var(--ok)",color:"#000",fontWeight:700}}>Download 2K PNG</button>
+                <button className="AB" onClick={()=>download(false)} style={{padding:"10px 20px",borderRadius:10,background:"var(--bg2)",color:"#fff"}}>Standard PNG</button>
               </div>
             )}
           </div>
         </div>
-        <div style={{textAlign:"center",marginTop:40,padding:"16px 0",borderTop:"1px solid var(--bdr)"}}>
-          <p style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--t4)"}}>
-            Claude 3.5 Engine → Vector SVG · Pollinations AI → Flux PNG
-          </p>
+        <div style={{marginTop:40}}>
+           <label className="L">History</label>
+           <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:10}}>
+             {history.map((h,i)=>(
+               <div key={i} onClick={()=>selectHist(h)} style={{width:60,height:60,borderRadius:10,overflow:"hidden",background:"#fff",cursor:"pointer",flexShrink:0}}>
+                 <img src={h.url} style={{width:"100%",height:"100%",objectFit:"cover"}} />
+               </div>
+             ))}
+           </div>
         </div>
       </div>
     </div>
