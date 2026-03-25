@@ -1,9 +1,11 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
+import dotenv from 'dotenv';
+import { optimizePrompt } from './orchestrator/StickerMaster.js';
 
 dotenv.config();
 
@@ -60,71 +62,14 @@ app.post('/api/generate', async (req, res) => {
   }
 });
 
-/* ─── API: Optimize & Review Prompt (Council of 4 Agents) ─── */
+/* ─── API: Optimize & Review Prompt (Modular Orchestrator) ─── */
 app.post('/api/optimize-prompt', async (req, res) => {
   const { prompt } = req.body;
   const token = process.env.GITHUB_TOKEN;
   if (!prompt) return res.status(400).send("Prompt required");
-  if (!token) return res.json({ optimized: prompt });
-
+  
   try {
-    const response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: `You are the Leader of the "Council of 4 Sticker Agents":
-1. AGENT COMPOSITION: Ensures full body visibility and 10% safety margin.
-2. AGENT ANATOMY: Ensures perfect subject features and recognizable DNA.
-3. AGENT LIGHTING: Ensures cinematic ray-traced shadows and global illumination.
-4. AGENT MATERIAL: Ensures premium die-cut vinyl texture and white outline.
-
-Your task: Review the user idea, let the agents "debate" internally, and then output the SINGLE PERFECT CONSOLIDATED PROMPT that combines all their wisdom.
-Output ONLY the final consolidated prompt text (max 450 chars). No preamble.` },
-          { role: "user", content: `Council, perfect this idea: "${prompt}"` }
-        ],
-        max_tokens: 300,
-        temperature: 0.7
-      })
-    });
-    const data = await response.json();
-    const optimized = data.choices[0].message.content.replace(/^"|"$/g, '').trim();
-    res.json({ optimized });
-  } catch (error) {
-    res.json({ optimized: prompt }); 
-  }
-});
-
-/* ─── API: Optimize & Review Prompt (Senior Orchestrator) ──── */
-app.post('/api/optimize-prompt', async (req, res) => {
-  const { prompt } = req.body;
-  const token = process.env.GITHUB_TOKEN;
-  if (!prompt) return res.status(400).send("Prompt required");
-  if (!token) return res.json({ optimized: prompt }); // Fallback if no token
-
-  try {
-    const response = await fetch("https://models.inference.ai.azure.com/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: "You are a Senior Sticker Art Director. Rewrite the user prompt into a high-fidelity 'Masterpiece Sticker Brief'.\nRules:\n1. Ensure the subject is FULLY VISIBLE and centered (no cutoffs).\n2. Add keywords for: die-cut vinyl, thick white outline, centered composition, high-res detail, cinematic lighting.\n3. Output ONLY the optimized prompt text." },
-          { role: "user", content: `Review and perfect this idea for a high-quality sticker: "${prompt}"` }
-        ],
-        max_tokens: 200,
-        temperature: 0.7
-      })
-    });
-    const data = await response.json();
-    const optimized = data.choices[0].message.content.replace(/^"|"$/g, '').trim();
+    const optimized = await optimizePrompt(prompt, token);
     res.json({ optimized });
   } catch (error) {
     res.json({ optimized: prompt }); 

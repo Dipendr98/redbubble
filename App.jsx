@@ -127,7 +127,13 @@ function pollinationsImageUrl(promptText, opts) {
   q.set("enhance", "true"); 
   q.set("nologo", "true");  
 
+  // Proxy to avoid browser direct-load limits (with direct fallback on fail)
   return `/api/image?${q.toString()}`;
+}
+
+function pollinationsDirectUrl(promptText, opts) {
+  const { width = 1024, height = 1024, seed, model = "flux" } = opts;
+  return `https://pollinations.ai/p/${encodeURIComponent(promptText)}?width=${width}&height=${height}&seed=${seed}&model=${model}&enhance=true&nologo=true`;
 }
 
 /* ─── SVG SYSTEM PROMPT (SENIOR ARCHITECT EDITION) ───────── */
@@ -341,7 +347,20 @@ export default function App() {
   }, [prompt, style, loading, sel, outputMode]);
 
   const onImgLoad = useCallback(() => { setImgLoading(false); setLoading(false); }, []);
-  const onImgError = useCallback(() => { setError("Image engine overloaded. Try again."); setLoading(false); setImgLoading(false); }, []);
+  
+  const onImgError = useCallback(() => { 
+    setResult(prev => {
+      if (!prev || prev.isDirect) {
+        setError("AI Engine is temporarily overloaded. Please try again in 30 seconds.");
+        setLoading(false); setImgLoading(false);
+        return prev;
+      }
+      // Fail-Safe: Switch to direct Pollinations URL if proxy fails
+      console.warn("Proxy failed, falling back to Direct Pollinations Link...");
+      const dUrl = pollinationsDirectUrl(prev.imagePrompt, { seed: prev.seed, model: "flux" });
+      return { ...prev, url: dUrl, isDirect: true };
+    });
+  }, []);
 
   const selectHist = useCallback((item) => {
     setResult(item); setPrompt(item.prompt); setStyle(item.style);
@@ -392,7 +411,9 @@ export default function App() {
       <div style={{position:"relative",maxWidth:1120,margin:"0 auto",padding:"40px 20px"}}>
         <header style={{textAlign:"center",marginBottom:40}}>
           <h1 style={{fontFamily: "var(--dsp)", fontSize: 42, fontWeight: 800}}>Sticker Studio Pro</h1>
-          <p style={{color: "var(--t3)", fontFamily: "var(--mono)", fontSize: 11}}>Council of Agents Engine Active</p>
+          <p style={{color: "var(--t3)", fontFamily: "var(--mono)", fontSize: 11}}>
+            ORCHESTRATOR: GPT-4o (Reasoning) · ARTIST: Pollinations Flux (Painter)
+          </p>
         </header>
         <div style={{display:"grid",gridTemplateColumns:"400px 1fr",gap:30}}>
           <div style={{display:"flex",flexDirection:"column",gap:15}}>
