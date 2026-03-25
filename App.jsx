@@ -120,25 +120,16 @@ function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, 
 }
 
 function pollinationsImageUrl(promptText, opts) {
-  const {
-    width = 1024,
-    height = 1024,
-    seed,
-    model = "flux", // "flux" is the current best model for overall quality
-    nologo = true,
-  } = opts;
+  const { width = 1024, height = 1024, seed, model = "flux" } = opts;
   const q = new URLSearchParams();
+  q.set("model", model);
+  q.set("seed", String(seed));
   q.set("width", String(width));
   q.set("height", String(height));
-  q.set("seed", String(seed));
-  if (nologo) q.set("nologo", "true");
-  q.set("model", model);
-  
-  // Enhance and Security
-  if (model === "flux" || model === "zimage") q.set("enhance", "true");
-  if (POLLINATIONS_API_KEY) q.set("pollen", POLLINATIONS_API_KEY);
-  
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?${q.toString()}`;
+  q.set("prompt", promptText);
+
+  // Use backend proxy to avoid direct browser <img src> issues and URL length limits
+  return `/api/image?${q.toString()}`;
 }
 
 /* ─── SVG SYSTEM PROMPT (PERFORMANCE TUNED) ──────────────── */
@@ -478,32 +469,37 @@ export default function App() {
     });
   }, []);
 
-  const onImgError = useCallback(() => {
+  const onImgError = useCallback(async () => {
+    // If image fails, don't just error out. Think harder. Try SVG recovery!
     setResult(prev => {
-      if (!prev || prev.type !== "image") {
-        setImgLoading(false);
-        setLoading(false);
-        setError("Image failed to load.");
-        return null;
-      }
-      const attempt = (prev.imageLoadAttempt || 0) + 1;
-      const styleImg = STYLES.find(s => s.id === prev.style)?.img || "";
-      if (attempt > 3) {
-        setImgLoading(false);
-        setLoading(false);
-        setError("Image failed after retries. Click Generate again, try a shorter prompt, or use GPT-4o SVG if your API proxy is available.");
-        return null;
-      }
-      setError("");
-      setImgLoading(true);
-      const next = pollinationsRetryUrl(prev, styleImg, attempt);
-      return {
-        ...prev,
-        ...next,
-        imageLoadAttempt: attempt,
-      };
+      if (!prev || prev.type !== "image" || prev.recovering) return prev;
+      return { ...prev, recovering: true };
     });
-  }, []);
+
+    console.warn("Raster image failed. Attempting silent SVG Recovery...");
+    
+    try {
+      const recovery = await generateWithStreaming(
+        prompt.trim(), 
+        STYLES.find(s=>s.id===style)?.svg || STYLES[0].svg, 
+        outputMode, 
+        "standard",
+        (partialContent) => {
+          const match = partialContent.match(/<svg[\s\S]*?<\/svg>/i);
+          if (match) {
+            setResult({ type: "svg", svg: match[0], prompt: prompt.trim(), style, outputMode, ts: Date.now(), recovered: true, streaming: true });
+          }
+        }
+      );
+      const entry = { ...recovery, prompt: prompt.trim(), style, outputMode, ts: Date.now(), recovered: true, streaming: false };
+      setResult(entry);
+      setLoading(false); setImgLoading(false);
+    } catch (e) {
+      console.error("Recovery failed:", e);
+      setError("Critical Error: AI Image servers are down. Try a shorter prompt or wait 1 minute.");
+      setLoading(false); setImgLoading(false);
+    }
+  }, [prompt, style, outputMode]);
 
   const selectHist = useCallback((item) => {
     setResult(item); setPrompt(item.prompt); setStyle(item.style);
