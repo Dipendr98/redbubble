@@ -76,10 +76,11 @@ function buildOrchestratorBrief(prompt, outputMode, level) {
   }[level] || "Follow prompt accurately with clean composition.";
 
   const detailChecklist = `
-- SUBJECT FIDELITY: Ensure the character or object is instantly recognizable.
-- ICONIC ELEMENTS: Include signature features (e.g. specialized gear, unique textures, characteristic colors).
-- ANATOMY & SHAPE: Use accurate proportions and organic curves. 
-- LAYERING: Use <g> groups to separate foreground/background elements clearly.`;
+- SUBJECT DNA: Define key features (ears, eyes, cape, suit) BEFORE writing code.
+- COMPOSITION: Main subject MUST be centered at (250, 250) in a 500x500 box.
+- SCALE: Subject MUST fill 70-85% of the frame. Do NOT hide in corners.
+- ICONIC ELEMENTS: Use precise geometric shapes for character-specific details (e.g. Gotham Knight features).
+- LAYERING: Use <g transform="translate(250,250)"> for the main body for perfect centering.`;
 
   return `ORCHESTRATOR BRIEF:
 - User request: "${prompt}"
@@ -141,14 +142,13 @@ function pollinationsImageUrl(promptText, opts) {
   return `/api/image?${q.toString()}`;
 }
 
-/* ─── SVG SYSTEM PROMPT (SOPHISTICATED ARTISTRY) ─────────── */
-const SVG_SYS = `You are a World-Class SVG Artist specialized in premium vector sticker design. 
-Your goal is to generate commercial-grade, multi-layered SVG stickers that look "perfect" and "hand-drawn".
-- Execution: Use a rich combination of <path>, <circle>, <ellipse>, and <polygon> for maximum detail.
-- Layering: Use multiple overlapping paths to create shadows, highlights, and depth.
-- Border: Always include a thick white (#fff) uniform border shape at the bottom-most layer.
-- Quality: Focus on organic curves, sharp points where needed, and character-accurate features. 
-- Rules: NO text, NO markdown, ONLY valid <svg> code starting with <svg viewBox="0 0 500 500">.`;
+/* ─── SVG SYSTEM PROMPT (CHARACTER MASTERY & CENTERING) ───── */
+const SVG_SYS = `You are a Senior Vector Architect. Your task is to generate pixel-perfect, centered character stickers.
+- Centering: Start with <g transform="translate(250, 250)">. All coordinates should be relative to center.
+- Frame: The subject MUST dominate the 500x500 viewBox. Never place art in a corner.
+- Fidelity: If the subject is a famous character (e.g. Batman), you MUST include the defining mask/ears/logo.
+- Style: Bold outlines, vibrant fills, 4px white (#fff) border shape at the very bottom level.
+- Format: Raw <svg> only. No text. No preamble.`;
 
 /* ─── API ENGINE (Reliable & Streaming) ───────────────────── */
 async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchestratorLevel, onChunk) {
