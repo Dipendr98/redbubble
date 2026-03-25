@@ -450,12 +450,19 @@ export default function App() {
 
   const generate = useCallback(async () => {
     if (!prompt.trim() || loading) return;
-    let eng = engine === "auto" ? (detectedEngine || "pollinations") : engine;
+    
+    // SMART CLASSIFIER: Automatically detect the best engine for the subject
+    const isComplexCharacter = /batman|hero|person|girl|boy|character|human|animal|face|scene|riding|spiderman|superman|marvel|dc|movie/i.test(prompt);
+    let eng = isComplexCharacter ? "pollinations" : "claude"; 
+    
+    // Explicit overrides
     if (outputMode === "hero-real") eng = "pollinations";
+    
     setLoading(true); setError(""); setResult(null); setDlStatus(""); setImgLoading(false);
 
     try {
       if (eng === "claude") {
+        console.log("Smart Choice: SVG Vector Engine");
         const result = await generateWithStreaming(
           prompt.trim(), 
           sel.svg, 
@@ -463,7 +470,7 @@ export default function App() {
           orchestratorLevel,
           (partialContent) => {
             let svg = partialContent;
-            // Senior Fix: If AI produced a broken root, wrap it to ensure visibility
+            // Robust parsing: extract SVG even if wrapped in markdown
             const match = svg.match(/<svg[\s\S]*?<\/svg>/i);
             if (match) {
               setResult({ type: "svg", svg: match[0], prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now(), streaming: true });
@@ -474,6 +481,7 @@ export default function App() {
         setResult(entry);
         setHistory(h => [entry, ...h].slice(0, 14));
       } else {
+        console.log("Smart Choice: AI Image Raster Engine");
         const seed = Math.floor(Math.random() * 999999);
         const r = generateWithPollinations(prompt.trim(), sel.img, seed, outputMode, orchestratorLevel);
         const entry = {
@@ -489,12 +497,21 @@ export default function App() {
         setImgLoading(true);
       }
     } catch (err) {
-      setError(err.message || "Generation failed. Try again.");
-      setLoading(false);
-      return;
+       // If SVG specifically fails, do a silent final recovery to Image
+       if (eng === "claude") {
+          console.warn("SVG Engine failed, attempting Photoreal Fallback...");
+          const seed = Math.floor(Math.random() * 999999);
+          const r = generateWithPollinations(prompt.trim(), sel.img, seed, outputMode, orchestratorLevel);
+          setResult({ ...r, prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now() });
+          setImgLoading(true);
+       } else {
+          setError(err.message || "Generation failed. Try again.");
+          setLoading(false);
+       }
+       return;
     }
     if (eng === "claude") setLoading(false);
-  }, [prompt, style, loading, engine, detectedEngine, sel, outputMode, orchestratorLevel]);
+  }, [prompt, style, loading, sel, outputMode, orchestratorLevel]);
 
   const onImgLoad = useCallback(() => {
     setImgLoading(false); setLoading(false);
