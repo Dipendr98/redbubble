@@ -417,12 +417,12 @@ function ImgMockup({ src, onLoad, onError, loading }) {
    MAIN APP
    ═══════════════════════════════════════════════════════════ */
 export default function App() {
-  const [engine, setEngine] = useState("claude");
+  const [engine, setEngine] = useState("auto");
   const [detectedEngine, setDetectedEngine] = useState("claude");
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState("die-cut");
   const [outputMode, setOutputMode] = useState("sticker-pro");
-  const [orchestratorLevel, setOrchestratorLevel] = useState("advanced");
+  const [orchestratorLevel, setOrchestratorLevel] = useState("cinematic");
   const [loading, setLoading] = useState(false);
   const [imgLoading, setImgLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -619,28 +619,14 @@ export default function App() {
         </header>
         <div style={{display:"grid",gridTemplateColumns:"420px 1fr",gap:20,alignItems:"start"}}>
           <div style={{display:"flex",flexDirection:"column",gap:13,animation:"fadeSlide .55s ease"}}>
-            <div className="P" style={{padding:"14px 16px"}}>
-              <div style={{display:"flex",gap:5,background:"var(--bg2)",borderRadius:11,padding:3}}>
-                {[
-                  {id:"auto",label:"Auto",desc:"Smart detection"},
-                  {id:"claude",label:"Claude SVG",desc:"Vector art"},
-                  {id:"pollinations",label:"AI Image",desc:"Photo-real"},
-                ].map(e => (
-                  <button key={e.id} onClick={() => setEngine(e.id)} style={{
-                    flex:1,padding:"7px 4px",borderRadius:9,border:"none",cursor:"pointer",
-                    background:engine===e.id?"var(--accentG)":"transparent",
-                    color:engine===e.id?"var(--accent)":"var(--t2)",
-                    fontFamily:"var(--mono)",fontSize:10,fontWeight:500,transition:"all .18s",
-                  }}>
-                    {e.label}
-                  </button>
-                ))}
-              </div>
-              {/batman|spiderman|superman|hero|person|girl|boy|character/i.test(prompt) && (
-                <div style={{fontSize:9,color:"var(--accent)",fontFamily:"var(--mono)",marginTop:7,padding:"6px 10px",background:"var(--accentG)",borderRadius:8,border:"1px solid rgba(228,92,58,.15)",animation:"fadeSlide .3s ease"}}>
-                  💡 <b>PRO TIP:</b> For famous characters like "{prompt.split(' ')[0]}", use <b>"AI Image"</b> mode for cinematic quality!
-                </div>
-              )}
+            <div className="P" style={{padding:"14px 16px", background:"var(--accentG)", border:"1px solid rgba(228,92,58,.15)", borderRadius:18}}>
+               <div style={{fontSize:11,color:"var(--accent)",fontFamily:"var(--mono)", fontWeight:600, display:"flex", alignItems:"center", gap:8}}>
+                  <div style={{width:8,height:8,background:"var(--accent)",borderRadius:"50%",animation:"pulse 2s infinite"}} />
+                  SMART MASTERY ENGINE ACTIVE
+               </div>
+               <div style={{fontSize:9,color:"var(--accent)",fontFamily:"var(--mono)",marginTop:5,opacity:.85,lineHeight:1.4}}>
+                  Automatically configuring the best AI models and artistic depth to guarantee cinematic, high-fidelity stickers for your description.
+               </div>
             </div>
             <div className="P">
               <label className="L">✦ Describe your sticker</label>
@@ -683,20 +669,6 @@ export default function App() {
                   Hero Real uses image engine automatically for realistic output.
                 </div>
               )}
-            </div>
-            <div className="P">
-              <label className="L">Orchestrator Level</label>
-              <div style={{display:"flex",gap:6}}>
-                {ORCHESTRATOR_LEVELS.map(l=>(
-                  <button key={l.id} className="AB" onClick={()=>setOrchestratorLevel(l.id)} style={{
-                    flex:1,padding:"9px 7px",borderRadius:10,border:`1px solid ${orchestratorLevel===l.id?"var(--bdrA)":"var(--bdr)"}`,
-                    background:orchestratorLevel===l.id?"var(--accentG)":"var(--bg2)",
-                    color:orchestratorLevel===l.id?"var(--t1)":"var(--t2)",fontSize:11,fontFamily:"var(--mono)"
-                  }}>
-                    {l.label}
-                  </button>
-                ))}
-              </div>
             </div>
             <div className="P">
               <label className="L">Sticker style</label>
