@@ -102,21 +102,15 @@ function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, 
   
   // Model-specific reinforcement for "Best Model" (Flux/Z-image)
   // Re-injecting Ultra-High Quality Boosters
-  const quality = orchestratorLevel === "cinematic" 
-    ? "ultra-detailed masterpiece, 8k, sharp focus, ray-traced lighting, professional studio shot" 
-    : "premium high resolution, clean details, professional work";
+  // Re-injecting Ultra-High Quality Boosters (MAX REALISM)
+  const quality = "ultra-detailed masterpiece, photorealistic, 8k, sharp focus, cinematic lighting, professional studio work, intricate textures, masterpiece, ray-traced";
 
   const mode =
     outputMode === "hero-real"
-      ? `${quality}, photoreal hero product shot, cinema 4D, soft volumetric shadow, premium ecommerce, depth of field`
-      : `${quality}, die-cut vinyl sticker, thick white outline, centered, clean silhouette, isolated on white background, no text, no watermark`;
+      ? `${quality}, photoreal luxury hero product shot, cinema 4D, volumetric lighting, premium e-commerce depth`
+      : `${quality}, premium die-cut vinyl sticker, thick clean white outline, centered, clean silhouette, isolated on white background, no text, no watermark`;
       
-  const lvl =
-    orchestratorLevel === "cinematic"
-      ? "hyper-realistic materials, vibrant global illumination"
-      : orchestratorLevel === "advanced"
-        ? "perfectly balanced artistic symmetry"
-        : "";
+  const lvl = "hyper-realistic materials, vibrant global illumination, perfect artistic symmetry";
 
   let out = [u, st, mode, lvl].filter(Boolean).join(", ");
   
@@ -451,11 +445,15 @@ export default function App() {
   const generate = useCallback(async () => {
     if (!prompt.trim() || loading) return;
     
-    // SMART CLASSIFIER: Automatically detect the best engine for the subject
-    const isComplexCharacter = /batman|hero|person|girl|boy|character|human|animal|face|scene|riding|spiderman|superman|marvel|dc|movie/i.test(prompt);
-    let eng = isComplexCharacter ? "pollinations" : "claude"; 
+    // SMART CLASSIFIER: Use Photoreal Image (Raster) as the primary for almost everything
+    // Only use SVG for explicitly 'simple' graphic keywords
+    const isGraphicRequest = /logo|icon|symbol|pattern|border|glyph|simple vector|flat icon/i.test(prompt);
+    const isComplex = /batman|hero|person|girl|boy|character|human|animal|face|scene|riding|helmet|movie|real|photo|cinematic|detailed|advanced/i.test(prompt);
     
-    // Explicit overrides
+    // PRIMARY: If it's complex OR not explicitly a graphic, use Photoreal Raster
+    let eng = (isComplex || !isGraphicRequest) ? "pollinations" : "claude"; 
+    
+    // FORCE RASTER for Photoreal Mode
     if (outputMode === "hero-real") eng = "pollinations";
     
     setLoading(true); setError(""); setResult(null); setDlStatus(""); setImgLoading(false);
