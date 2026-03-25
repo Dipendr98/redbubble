@@ -141,84 +141,81 @@ function pollinationsImageUrl(promptText, opts) {
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?${q.toString()}`;
 }
 
-/* ─── SVG SYSTEM PROMPT ──────────────────────────────────── */
-const SVG_SYS = `You are an elite AI Vector Artist and Systems Architect specialized in generating Redbubble-ready commercial SVG stickers. Your task is to translate user prompts into breathtaking, highly detailed, organic SVG vector art.
+/* ─── SVG SYSTEM PROMPT (PERFORMANCE TUNED) ──────────────── */
+const SVG_SYS = `You are an elite AI Vector Artist. Generate a high-quality, commercial SVG sticker for Redbubble.
+- Root: <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+- Style: Clean die-cut, thick white (#fff) border, professional layering.
+- Technique: Efficient <path> geometry with clean Bezier curves. Use <defs> for gradients.
+- Rules: NO text, NO markdown, ONLY raw <svg> code.
+- Optimize: High visual impact with minimal path complexity for speed.`;
 
-CRITICAL ORCHESTRATION ENGINE (COT):
-Before writing any SVG code, you MUST execute a <thinking>...</thinking> block. As an AI, your visual-spatial reasoning relies on explicit mathematical planning. You must step through this framework:
-1. [Deconstruction]: Analyze the prompt. Identify the primary subject, secondary elements, requested style, and emotion.
-2. [Coordinate Architecture]: Map out a 500x500 bounding box. Define exact (x,y) anchor coordinates for major structural/anatomical points (e.g., Head Center(250, 180), Torso Base(250, 350)).
-3. [Organic Geometry]: Acknowledge that you cannot just stack primitive <circle> and <ellipse> tags. For organic subjects, you MUST mathematically plan complex <path> elements using precise Cubic (C) and Quadratic (Q) Bezier curves to model natural contours, hair, dynamic limbs, and clothing.
-4. [Color Theory & Lighting]: Define a strict color palette based on the prompt. Plan a consistent global light source (e.g., top-left) and dictate exactly where gradients, specular highlights, and drop shadows will mathematically fall.
-5. [Layering Strategy]: Explicitly list the back-to-front z-index drawing order:
-   Z-0: Thick white die-cut sticker boundary shape (essential for Redbubble).
-   Z-1: Stylistic backdrops.
-   Z-2: Subject silhouette/base colors.
-  Z-3: Detailed subject shading, expressive facial features with eye-highlights, and organic textures.
-   Z-4: Micro-details, vector sparkles, and glossy <feGaussianBlur> shines.
-
-STRICT EXECUTION RULES:
-- First, perform an extensive <thinking> block with the 5 steps above.
-- Then, output EXACTLY ONE raw <svg>...</svg> block. 
-- Use ONLY standard SVG attributes. No custom namespaces.
-- Root: <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">.
-- Use <defs> for all sophisticated gradients and filters.
-- Achieve a "premium sticker" aesthetic: thick outlines, high contrast, and commercial appeal.
-- DO NOT use markdown or backticks. Output raw code.`;
-
-/* ─── API ENGINE (GPT-4o Proxy) ─────────────────────────── */
-/* ─── SVG ENGINE (Claude via Unified Pollinations API) ──── */
-async function generateWithPollinationsSVG(prompt, styleSvgPrompt, outputMode, orchestratorLevel) {
+/* ─── API ENGINE (Streaming & Proxy Optimized) ────────────── */
+async function generateWithStreaming(prompt, styleSvgPrompt, outputMode, orchestratorLevel, onChunk) {
   const orchestratorBrief = buildOrchestratorBrief(prompt, outputMode, orchestratorLevel);
-  const modeRules = outputMode === "hero-real"
-    ? "Create an ultra-detailed premium hero-style SVG artwork with realistic shading, material textures, and cinematic lighting."
-    : "Create a die-cut sticker design with thick white border, strong silhouette, and Redbubble-ready readability.";
+  const userMsg = `${orchestratorBrief}\n\nStyle: ${styleSvgPrompt}\n\nOutput ONLY the raw SVG code.`;
 
-  const userMsg = `${orchestratorBrief}
-
-${modeRules}
-Style directives:
-${styleSvgPrompt}
-
-Remember: ONLY output the <svg>...</svg> code. Make it detailed with 45+ elements, expressive, and commercially attractive.`;
-
-  const headers = {
-    "Content-Type": "application/json",
+  // Try local proxy first (usually GPT-4o, very fast), fallback to Pollinations
+  let url = "/api/generate";
+  let body = {
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: SVG_SYS },
+      { role: "user", content: userMsg }
+    ],
+    stream: true
   };
-  if (POLLINATIONS_API_KEY) {
-    headers["Authorization"] = `Bearer ${POLLINATIONS_API_KEY}`;
-  }
 
-  const res = await fetch("https://gen.pollinations.ai/v1/chat/completions", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: "claude-large", // Uses the highest-tier Claude 3 available via Pollinations
-      messages: [
-        { role: "system", content: SVG_SYS },
-        { role: "user", content: userMsg }
-      ]
-    })
-  });
+  try {
+    let res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
 
-  if (!res.ok) {
-    let errText = `SVG Engine Error: ${res.status}`;
-    try {
-      const errJSON = await res.json();
-      if (errJSON?.error?.message) errText += ` - ${errJSON.error.message}`;
-    } catch {}
-    throw new Error(errText);
+    if (!res.ok) {
+      console.warn("Proxy failed, falling back to direct Pollinations...");
+      url = "https://gen.pollinations.ai/v1/chat/completions";
+      body.model = "claude-large";
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+    }
+
+    if (!res.ok) throw new Error("API error: " + res.status);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullContent = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.slice(6).trim();
+          if (dataStr === '[DONE]') break;
+          try {
+            const data = JSON.parse(dataStr);
+            const content = data.choices[0]?.delta?.content || "";
+            fullContent += content;
+            if (onChunk) onChunk(fullContent);
+          } catch (e) {}
+        }
+      }
+    }
+
+    const match = fullContent.match(/<svg[\s\S]*?<\/svg>/i);
+    if (!match) throw new Error("No SVG found in response.");
+    return { type: "svg", svg: match[0] };
+  } catch (err) {
+    throw err;
   }
-  
-  const data = await res.json();
-  const textContent = data.choices?.[0]?.message?.content || "";
-  
-  const match = textContent.match(/<svg[\s\S]*?<\/svg>/i);
-  if (!match) {
-    console.error("No SVG found in response content:", textContent);
-    throw new Error("SVG generation failed. The model may have returned text instead of a valid vector file.");
-  }
-  return { type: "svg", svg: match[0] };
 }
 
 /* ─── POLLINATIONS ENGINE (Fallback) ─────────────────────── */
@@ -248,7 +245,6 @@ function pollinationsHiRes(imagePrompt, seed, pollModel, outputMode) {
   });
 }
 
-/** Recovery URLs when the first request fails (overload, URL limits, or model hiccups). */
 function pollinationsRetryUrl(entry, styleImgPrompt, attempt) {
   const seed = Math.floor(Math.random() * 999999);
   let compact = entry.imagePrompt;
@@ -258,11 +254,11 @@ function pollinationsRetryUrl(entry, styleImgPrompt, attempt) {
   let nologo = true;
 
   if (attempt === 1) {
-    model = "zimage"; // Second best for speed/upscaling
+    model = "zimage";
     w = 1024;
     h = 1024;
   } else if (attempt === 2) {
-    model = "turbo"; // Faster fallback
+    model = "turbo";
     w = 768;
     h = 768;
   } else {
@@ -426,8 +422,19 @@ export default function App() {
 
     try {
       if (eng === "claude") {
-        const r = await generateWithPollinationsSVG(prompt.trim(), sel.svg, outputMode, orchestratorLevel);
-        const entry = { ...r, prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now() };
+        const result = await generateWithStreaming(
+          prompt.trim(), 
+          sel.svg, 
+          outputMode, 
+          orchestratorLevel,
+          (partialContent) => {
+            const match = partialContent.match(/<svg[\s\S]*?<\/svg>/i);
+            if (match) {
+              setResult({ type: "svg", svg: match[0], prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now(), streaming: true });
+            }
+          }
+        );
+        const entry = { ...result, prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now(), streaming: false };
         setResult(entry);
         setHistory(h => [entry, ...h].slice(0, 14));
       } else {
@@ -706,7 +713,7 @@ export default function App() {
                   </p>
                 </div>
               )}
-              {result?.type==="svg" && !loading && (
+               {(result?.type==="svg" && (!loading || result.streaming)) && (
                 <div style={{animation:"fadeSlide .4s ease"}}><SvgMockup svg={result.svg} /></div>
               )}
               {result?.type==="image" && (
