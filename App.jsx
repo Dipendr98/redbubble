@@ -85,23 +85,36 @@ function buildOrchestratorBrief(prompt, outputMode, level) {
 }
 
 /** Keep image URLs short — long prompts break CDNs, proxies, and Pollinations GET limits. */
-const POLL_URL_MAX = 900;
+const POLL_URL_MAX = 800;
+const POLLINATIONS_API_KEY = "sk_mMB4aVvYz9mfqbZhttnz2BQl1DPtzeKE";
 
 function buildPollinationsPromptCompact(userPrompt, styleImgPrompt, outputMode, orchestratorLevel) {
   const u = (userPrompt || "").trim().replace(/\s+/g, " ").slice(0, 320);
   const st = (styleImgPrompt || "").trim().replace(/\s+/g, " ").slice(0, 160);
+  
+  // Model-specific reinforcement for "Best Model" (Flux/Z-image)
+  const quality = orchestratorLevel === "cinematic" 
+    ? "ultra-detailed, 8k, cinematic lighting, masterpiece, sharp focus" 
+    : "high resolution, clean details, professional work";
+
   const mode =
     outputMode === "hero-real"
-      ? "photoreal hero product shot, studio light, soft shadow, premium ecommerce, sharp focus"
-      : "die-cut vinyl sticker, thick white outline, centered, clean silhouette, white background";
+      ? `${quality}, photoreal hero product shot, studio light, soft shadow, premium ecommerce, depth of field`
+      : `${quality}, die-cut vinyl sticker, thick white outline, centered, clean silhouette, isolated on white background, no text, no watermark`;
+      
   const lvl =
     orchestratorLevel === "cinematic"
-      ? "cinematic rim light, rich color"
+      ? "hyper-realistic materials, rich vibrant color, global illumination"
       : orchestratorLevel === "advanced"
-        ? "professional balanced composition"
+        ? "perfectly balanced artistic composition"
         : "";
-  const tail = "single main subject, high detail, coherent";
+
+  const tail = "single centered object, coherent architecture, no background artifacts";
   let out = [u, st, mode, lvl, tail].filter(Boolean).join(", ");
+  
+  // Final cleaning to avoid bad characters in URL
+  out = out.replace(/[^a-zA-Z0-9\s,._-]/g, "");
+  
   if (out.length > POLL_URL_MAX) out = out.slice(0, POLL_URL_MAX);
   return out;
 }
@@ -111,8 +124,7 @@ function pollinationsImageUrl(promptText, opts) {
     width = 1024,
     height = 1024,
     seed,
-    model = "flux",
-    negative = "blurry, lowres, watermark, ugly, deformed, cropped face, extra limbs",
+    model = "flux", // "flux" is the current best model for overall quality
     nologo = true,
   } = opts;
   const q = new URLSearchParams();
@@ -121,7 +133,11 @@ function pollinationsImageUrl(promptText, opts) {
   q.set("seed", String(seed));
   if (nologo) q.set("nologo", "true");
   q.set("model", model);
-  if (negative) q.set("negative", negative);
+  
+  // Enhance and Security
+  if (model === "flux" || model === "zimage") q.set("enhance", "true");
+  if (POLLINATIONS_API_KEY) q.set("pollen", POLLINATIONS_API_KEY);
+  
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?${q.toString()}`;
 }
 
@@ -138,20 +154,24 @@ Before writing any SVG code, you MUST execute a <thinking>...</thinking> block. 
    Z-0: Thick white die-cut sticker boundary shape (essential for Redbubble).
    Z-1: Stylistic backdrops.
    Z-2: Subject silhouette/base colors.
-   Z-3: Detailed subject shading, expressive facial features with eye-highlights, and organic textures.
+  Z-3: Detailed subject shading, expressive facial features with eye-highlights, and organic textures.
    Z-4: Micro-details, vector sparkles, and glossy <feGaussianBlur> shines.
 
-EXECUTION RULES:
-- After the <thinking> block, you MUST output EXACTLY ONE raw <svg>...</svg> block. No markdown backticks around the SVG. Nothing else.
-- Root: <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg"> (NO width/height attributes).
-- Complexity: Minimum 30-70 nodes. Use <defs> extensively for radialGradients, linearGradients, and filters.
-- Professionalism: Do NOT output abstract, overlapping primitive blobs. The user demands highly-engineered, commercial-grade, beautiful vector artistry.`;
+STRICT EXECUTION RULES:
+- First, perform an extensive <thinking> block with the 5 steps above.
+- Then, output EXACTLY ONE raw <svg>...</svg> block. 
+- Use ONLY standard SVG attributes. No custom namespaces.
+- Root: <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">.
+- Use <defs> for all sophisticated gradients and filters.
+- Achieve a "premium sticker" aesthetic: thick outlines, high contrast, and commercial appeal.
+- DO NOT use markdown or backticks. Output raw code.`;
 
 /* ─── API ENGINE (GPT-4o Proxy) ─────────────────────────── */
-async function generateWithAnthropic(prompt, styleSvgPrompt, outputMode, orchestratorLevel) {
+/* ─── SVG ENGINE (Claude via Pollinations) ──────────────── */
+async function generateWithPollinationsSVG(prompt, styleSvgPrompt, outputMode, orchestratorLevel) {
   const orchestratorBrief = buildOrchestratorBrief(prompt, outputMode, orchestratorLevel);
   const modeRules = outputMode === "hero-real"
-    ? "Create an ultra-detailed premium hero-style artwork with realistic shading, material textures, and cinematic lighting while remaining valid SVG."
+    ? "Create an ultra-detailed premium hero-style SVG artwork with realistic shading, material textures, and cinematic lighting."
     : "Create a die-cut sticker design with thick white border, strong silhouette, and Redbubble-ready readability.";
 
   const userMsg = `${orchestratorBrief}
@@ -160,39 +180,24 @@ ${modeRules}
 Style directives:
 ${styleSvgPrompt}
 
-Remember: ONLY output the <svg>...</svg> code. Make it detailed with 35+ elements, expressive, commercially attractive, and faithful to the request.`;
+Remember: ONLY output the <svg>...</svg> code. Make it detailed with 45+ elements, expressive, and commercially attractive.`;
 
-  const res = await fetch("/api/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: SVG_SYS },
-        { role: "user", content: userMsg }
-      ]
-    }),
-  });
-
-  if (!res.ok) {
-    let errText = `API ${res.status}`;
-    try {
-      const errJSON = await res.json();
-      if (errJSON?.error?.message) errText += ` - ${errJSON.error.message}`;
-    } catch {}
-    throw new Error(errText);
-  }
-  const textData = await res.text();
-  let text = textData;
-  try {
-     const data = JSON.parse(textData);
-     if (data.choices && data.choices[0] && data.choices[0].message) {
-         text = data.choices[0].message.content;
-     }
-  } catch(e) {}
-
+  const q = new URLSearchParams();
+  q.set("model", "claude");
+  q.set("system", SVG_SYS);
+  if (POLLINATIONS_API_KEY) q.set("pollen", POLLINATIONS_API_KEY);
+  
+  const url = `https://text.pollinations.ai/${encodeURIComponent(userMsg)}?${q.toString()}`;
+  
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`SVG Engine Error: ${res.status}`);
+  
+  const text = await res.text();
   const match = text.match(/<svg[\s\S]*?<\/svg>/i);
-  if (!match) throw new Error("No SVG in response");
+  if (!match) {
+    console.error("No SVG found in response:", text);
+    throw new Error("SVG generation failed. The model may have returned text instead of a valid vector file.");
+  }
   return { type: "svg", svg: match[0] };
 }
 
@@ -233,15 +238,16 @@ function pollinationsRetryUrl(entry, styleImgPrompt, attempt) {
   let nologo = true;
 
   if (attempt === 1) {
-    w = 768;
-    h = 768;
+    model = "zimage"; // Second best for speed/upscaling
+    w = 1024;
+    h = 1024;
   } else if (attempt === 2) {
-    model = "turbo";
+    model = "turbo"; // Faster fallback
     w = 768;
     h = 768;
   } else {
     const minimal = buildPollinationsPromptCompact(entry.prompt || "", styleImgPrompt || "", entry.outputMode || "sticker-pro", "standard");
-    compact = minimal.slice(0, 500);
+    compact = minimal.slice(0, 400);
     model = "turbo";
     w = 512;
     h = 512;
@@ -361,8 +367,8 @@ function ImgMockup({ src, onLoad, onError, loading }) {
    MAIN APP
    ═══════════════════════════════════════════════════════════ */
 export default function App() {
-  const [engine, setEngine] = useState("anthropic");
-  const [detectedEngine, setDetectedEngine] = useState("anthropic");
+  const [engine, setEngine] = useState("claude");
+  const [detectedEngine, setDetectedEngine] = useState("claude");
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState("die-cut");
   const [outputMode, setOutputMode] = useState("sticker-pro");
@@ -380,17 +386,9 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "gpt-4o",
-            max_tokens: 10,
-            messages: [{ role: "user", content: "Reply with just: ok" }],
-          }),
-        });
-        if (r.ok || r.status === 400) {
-          setDetectedEngine("anthropic");
+        const r = await fetch("https://text.pollinations.ai/health");
+        if (r.ok) {
+          setDetectedEngine("claude");
         } else {
           setDetectedEngine("pollinations");
         }
@@ -407,8 +405,8 @@ export default function App() {
     setLoading(true); setError(""); setResult(null); setDlStatus(""); setImgLoading(false);
 
     try {
-      if (eng === "anthropic") {
-        const r = await generateWithAnthropic(prompt.trim(), sel.svg, outputMode, orchestratorLevel);
+      if (eng === "claude") {
+        const r = await generateWithPollinationsSVG(prompt.trim(), sel.svg, outputMode, orchestratorLevel);
         const entry = { ...r, prompt: prompt.trim(), style, outputMode, orchestratorLevel, ts: Date.now() };
         setResult(entry);
         setHistory(h => [entry, ...h].slice(0, 14));
@@ -432,7 +430,7 @@ export default function App() {
       setLoading(false);
       return;
     }
-    if (eng === "anthropic") setLoading(false);
+    if (eng === "claude") setLoading(false);
   }, [prompt, style, loading, engine, detectedEngine, sel, outputMode, orchestratorLevel]);
 
   const onImgLoad = useCallback(() => {
@@ -449,7 +447,7 @@ export default function App() {
         setImgLoading(false);
         setLoading(false);
         setError("Image failed to load.");
-        return prev;
+        return null;
       }
       const attempt = (prev.imageLoadAttempt || 0) + 1;
       const styleImg = STYLES.find(s => s.id === prev.style)?.img || "";
@@ -457,7 +455,7 @@ export default function App() {
         setImgLoading(false);
         setLoading(false);
         setError("Image failed after retries. Click Generate again, try a shorter prompt, or use GPT-4o SVG if your API proxy is available.");
-        return prev;
+        return null;
       }
       setError("");
       setImgLoading(true);
@@ -548,7 +546,7 @@ export default function App() {
             Design. Preview. Sell.
           </h1>
           <p style={{color:"var(--t3)",fontFamily:"var(--mono)",fontSize:11}}>
-            AI sticker generator · Redbubble-ready · {activeEngine === "anthropic" ? "GPT-4o SVG Engine" : activeEngine === "pollinations" ? "Pollinations image engine" : "detecting engine..."}
+            AI sticker generator · Redbubble-ready · {activeEngine === "claude" ? "Claude 3.5 SVG Engine" : activeEngine === "pollinations" ? "Pollinations image engine" : "detecting engine..."}
           </p>
         </header>
         <div style={{display:"grid",gridTemplateColumns:"420px 1fr",gap:20,alignItems:"start"}}>
@@ -557,7 +555,7 @@ export default function App() {
               <div style={{display:"flex",gap:5,background:"var(--bg2)",borderRadius:11,padding:3}}>
                 {[
                   {id:"auto",label:"Auto",desc:"Smart detection"},
-                  {id:"anthropic",label:"GPT-4o SVG",desc:"Vector art"},
+                  {id:"claude",label:"Claude SVG",desc:"Vector art"},
                   {id:"pollinations",label:"AI Image",desc:"Photo-real"},
                 ].map(e => (
                   <button key={e.id} onClick={() => setEngine(e.id)} style={{
@@ -571,8 +569,8 @@ export default function App() {
                 ))}
               </div>
               <div style={{fontSize:9,color:"var(--t3)",fontFamily:"var(--mono)",marginTop:7,lineHeight:1.5}}>
-                {engine==="auto" && `Auto-detected: ${detectedEngine==="anthropic"?"GPT-4o SVG Engine":detectedEngine==="pollinations"?"Pollinations (fallback mode)":"detecting..."}`}
-                {engine==="anthropic" && "GPT-4o generates high-quality vector SVG stickers via the secure backend proxy"}
+                {engine==="auto" && `Auto-detected: ${detectedEngine==="claude"?"Claude 3.5 SVG Engine":detectedEngine==="pollinations"?"Pollinations (fallback mode)":"detecting..."}`}
+                {engine==="claude" && "Claude 3.5 Sonnet generates high-quality premium SVG stickers via Pollinations"}
                 {engine==="pollinations" && "Pollinations generates AI images (fallback mode)"}
               </div>
             </div>
@@ -673,7 +671,7 @@ export default function App() {
                   <div style={{fontSize:52,opacity:.1,marginBottom:12}}>✂️</div>
                   <p style={{fontFamily:"var(--mono)",fontSize:11,color:"var(--t3)"}}>your sticker preview appears here</p>
                   <p style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--t4)",marginTop:4}}>
-                    engine: {activeEngine==="anthropic"?"GPT-4o SVG Engine":activeEngine==="pollinations"?"Pollinations AI":"auto-detecting..."}
+                    engine: {activeEngine==="claude"?"Claude 3.5 SVG Engine":activeEngine==="pollinations"?"Pollinations AI":"auto-detecting..."}
                   </p>
                 </div>
               )}
@@ -684,7 +682,7 @@ export default function App() {
                     <div style={{position:"absolute",inset:9,borderRadius:"50%",border:"3px solid var(--bdr)",borderBottomColor:"var(--accent2)",animation:"spin 1.4s linear infinite reverse"}} />
                   </div>
                   <p style={{fontFamily:"var(--mono)",fontSize:11,color:"var(--t2)",animation:"pulse 1.5s ease infinite"}}>
-                    {activeEngine==="anthropic"?"GPT-4o is drawing your sticker...":"generating sticker image..."}
+                    {activeEngine==="claude"?"Claude is drawing your sticker...":`AI is generating sticker via ${result?.pollModel || "Flux"}...`}
                   </p>
                 </div>
               )}
@@ -758,7 +756,7 @@ export default function App() {
         </div>
         <div style={{textAlign:"center",marginTop:40,padding:"16px 0",borderTop:"1px solid var(--bdr)"}}>
           <p style={{fontFamily:"var(--mono)",fontSize:9,color:"var(--t4)"}}>
-            GPT-4o API (via Proxy) → Vector SVG · Fallback → Pollinations AI PNG
+            Claude 3.5 Engine → Vector SVG · Pollinations AI → Flux PNG
           </p>
         </div>
       </div>
