@@ -77,10 +77,11 @@ function buildOrchestratorBrief(prompt, outputMode, level) {
 
   const detailChecklist = `
 - SUBJECT DNA: Define key features (ears, eyes, cape, suit) BEFORE writing code.
-- COMPOSITION: Main subject MUST be centered at (250, 250) in a 500x500 box.
-- SCALE: Subject MUST fill 70-85% of the frame. Do NOT hide in corners.
-- ICONIC ELEMENTS: Use precise geometric shapes for character-specific details (e.g. Gotham Knight features).
-- LAYERING: Use <g transform="translate(250,250)"> for the main body for perfect centering.`;
+- COORDINATES: Canvas is 500x500. Draw the main subject centered at (250, 250).
+- BOUNDING BOX: Ensure all paths stay between 50 and 450 to avoid edge cutoffs.
+- SCALE: Subject MUST occupy the central 80% of the 500x500 area. 
+- ICONIC ELEMENTS: Use sharp geometric precision for character-specific details (e.g. Gotham Knight features).
+- LAYERING: Always include a thick white (#fff) uniform border path at the very bottom level.`;
 
   return `ORCHESTRATOR BRIEF:
 - User request: "${prompt}"
@@ -142,12 +143,12 @@ function pollinationsImageUrl(promptText, opts) {
   return `/api/image?${q.toString()}`;
 }
 
-/* ─── SVG SYSTEM PROMPT (CHARACTER MASTERY & CENTERING) ───── */
+/* ─── SVG SYSTEM PROMPT (PERFECT CENTERING & VISIBILITY) ─── */
 const SVG_SYS = `You are a Senior Vector Architect. Your task is to generate pixel-perfect, centered character stickers.
-- Centering: Start with <g transform="translate(250, 250)">. All coordinates should be relative to center.
-- Frame: The subject MUST dominate the 500x500 viewBox. Never place art in a corner.
-- Fidelity: If the subject is a famous character (e.g. Batman), you MUST include the defining mask/ears/logo.
-- Style: Bold outlines, vibrant fills, 4px white (#fff) border shape at the very bottom level.
+- Grid: Use a standard 500x500 coordinate system. The center is (250, 250).
+- Centering: Draw your main paths around the center. DO NOT use complex transforms if they might confuse your coordinate logic.
+- Visibility: Ensure the entire subject is visible within the 500x500 box. Scale to fill ~400px of space.
+- Style: Bold outlines, vibrant fills, professional layering.
 - Format: Raw <svg> only. No text. No preamble.`;
 
 /* ─── API ENGINE (Reliable & Streaming) ───────────────────── */

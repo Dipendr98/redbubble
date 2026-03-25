@@ -60,16 +60,17 @@ app.post('/api/generate', async (req, res) => {
   }
 });
 
-/** New: Image Proxy to prevent CORS/URL-length issues */
+/** New: Image Proxy to prevent CORS/URL-length issues (Zero-Latency Streaming) */
 app.get('/api/image', async (req, res) => {
   const { prompt, model, seed, width, height } = req.query;
   if (!prompt) return res.status(400).send("Prompt required");
 
   const q = new URLSearchParams();
-  if (model) q.set("model", model);
+  // Default to 'turbo' for blazing fast results in standard mode
+  q.set("model", model || "turbo"); 
   if (seed) q.set("seed", seed);
-  if (width) q.set("width", width);
-  if (height) q.set("height", height);
+  q.set("width", width || "1024");
+  q.set("height", height || "1024");
   if (process.env.VITE_POLLINATIONS_API_KEY) q.set("pollen", process.env.VITE_POLLINATIONS_API_KEY);
 
   const pollUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?${q.toString()}`;
@@ -78,11 +79,23 @@ app.get('/api/image', async (req, res) => {
     const response = await fetch(pollUrl);
     if (!response.ok) throw new Error("Pollinations fail");
     
-    // Proxy the image bytes directly
-    const buffer = await response.arrayBuffer();
     res.setHeader('Content-Type', response.headers.get('Content-Type') || 'image/png');
     res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(Buffer.from(buffer));
+
+    // Pipe response stream directly for instant delivery
+    if (response.body) {
+      if (typeof Readable.fromWeb === 'function') {
+        Readable.fromWeb(response.body).pipe(res);
+      } else {
+        const reader = response.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+        res.end();
+      }
+    }
   } catch (error) {
     res.status(500).send("Imaging failed");
   }
